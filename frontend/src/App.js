@@ -1,19 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserProvider, useUser } from './hooks/useUser';
-import { useSocket } from './hooks/useSocket';
+import { useSocket } from './hooks/useSockets';
 import { PostIt } from './components/PostIt';
 import { apiService } from './services/apiService';
 import { 
   StickyNote, Users, Heart, Home, Plus, Share2, 
   Copy, Check, X, AlertCircle, Send, Palette,
-  Lock, Unlock, Hash
+  Lock, Unlock, Hash, User
 } from 'lucide-react';
 import { 
   FRIENDS_COLORS, COUPLE_COLORS, PANEL_TYPES, 
   LIMITS, ERROR_MESSAGES 
 } from './constants/config';
 
-// Função para obter cores baseadas no tipo
+// Função para obter cores baseadas no tipo do painel
 const getColors = (type) => {
   return type === 'couple' ? COUPLE_COLORS : FRIENDS_COLORS;
 };
@@ -87,7 +87,7 @@ function WelcomeScreen() {
     <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-50 to-pink-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-md w-full border border-gray-100">
         <div className="flex items-center justify-center mb-8">
-          <SticklyNote className="w-12 h-12 text-slate-600 mr-3" />
+          <StickyNote className="w-12 h-12 text-slate-600 mr-3" />
           <h1 className="text-4xl font-bold text-gray-800">Stickly Notes</h1>
         </div>
         
@@ -149,7 +149,7 @@ function HomeScreen() {
           </button>
 
           <div className="flex items-center justify-center mb-8">
-            <SticklyNote className="w-12 h-12 text-slate-600 mr-3" />
+            <StickyNote className="w-12 h-12 text-slate-600 mr-3" />
             <h1 className="text-4xl font-bold text-gray-800">Novo Mural</h1>
           </div>
           
@@ -215,7 +215,7 @@ function HomeScreen() {
     <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-50 to-pink-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-2xl w-full border border-gray-100">
         <div className="flex items-center justify-center mb-8">
-          <SticklyNote className="w-12 h-12 text-slate-600 mr-3" />
+          <StickyNote className="w-12 h-12 text-slate-600 mr-3" />
           <h1 className="text-5xl font-bold text-gray-800">Stickly Notes</h1>
         </div>
         
@@ -233,7 +233,7 @@ function HomeScreen() {
             className="w-full p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl hover:from-blue-100 hover:to-indigo-100 transition-all duration-300 border border-blue-200 hover:border-blue-300 hover:shadow-lg transform hover:-translate-y-1"
           >
             <div className="flex items-center">
-              <SticklyNote className="w-8 h-8 text-blue-600 mr-4" />
+              <StickyNote className="w-8 h-8 text-blue-600 mr-4" />
               <div className="text-left">
                 <h3 className="text-xl font-semibold text-gray-800">Crie seu mural</h3>
                 <p className="text-gray-600 text-sm mt-1">Comece um novo mural para compartilhar</p>
@@ -292,3 +292,428 @@ function CreatePanelScreen({ panelType, onBack, username }) {
       backgroundColor: colors.backgrounds[0]
     }));
   }, [panelType]);
+
+  const handleSubmit = async () => {
+    if (!formData.name.trim()) {
+      setError('Digite um nome para o painel');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await apiService.createPanel({
+        name: formData.name,
+        type: panelType,
+        password: formData.requirePassword ? formData.password : null,
+        creator: username,
+        userId: userId,
+        borderColor: formData.borderColor,
+        backgroundColor: formData.backgroundColor
+      });
+
+      setCurrentPanel(response);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (currentPanel) {
+    return <PanelScreen panel={currentPanel} />;
+  }
+
+  const gradient = panelType === 'couple' ? 
+    'bg-gradient-to-br from-pink-100 to-rose-100' : 
+    'bg-gradient-to-br from-blue-100 to-indigo-100';
+
+  return (
+    <div className={`min-h-screen ${gradient} flex items-center justify-center p-4`}>
+      <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-md w-full border border-gray-100">
+        <button
+          onClick={onBack}
+          className="mb-6 text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1 text-sm"
+        >
+          ← Voltar
+        </button>
+
+        <div className="flex items-center justify-center mb-8">
+          {panelType === 'couple' ? (
+            <Heart className="w-10 h-10 text-rose-500 mr-3" />
+          ) : (
+            <StickyNote className="w-10 h-10 text-slate-600 mr-3" />
+          )}
+          <h2 className="text-4xl font-bold text-gray-800">
+            {panelType === 'couple' ? 'Painel Romântico' : 'Novo Mural'}
+          </h2>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Nome do Mural
+            </label>
+            <input
+              type="text"
+              placeholder={panelType === 'couple' ? 'Nosso cantinho romântico ❤️' : 'Ideias da turma'}
+              value={formData.name}
+              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition-all"
+              maxLength={LIMITS.PANEL_NAME_MAX_LENGTH}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Palette className="w-4 h-4 inline mr-1" />
+              Cor da Borda
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              {colors.borders.map(color => (
+                <button
+                  key={color}
+                  onClick={() => setFormData(prev => ({ ...prev, borderColor: color }))}
+                  className={`w-12 h-12 rounded-xl border-4 transition-all ${
+                    formData.borderColor === color ? 'scale-110 shadow-lg' : 'hover:scale-105'
+                  }`}
+                  style={{ backgroundColor: color, borderColor: color }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Palette className="w-4 h-4 inline mr-1" />
+              Cor de Fundo
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              {colors.backgrounds.map(color => (
+                <button
+                  key={color}
+                  onClick={() => setFormData(prev => ({ ...prev, backgroundColor: color }))}
+                  className={`w-12 h-12 rounded-xl border-2 transition-all relative ${
+                    formData.backgroundColor === color ? 'border-gray-700 scale-110 shadow-lg' : 'border-gray-300 hover:scale-105'
+                  }`}
+                  style={{ backgroundColor: color }}
+                >
+                  {formData.backgroundColor === color && (
+                    <Check className="w-4 h-4 text-gray-700 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+            <div className="flex items-center">
+              {formData.requirePassword ? 
+                <Lock className="w-5 h-5 text-slate-600 mr-2" /> : 
+                <Unlock className="w-5 h-5 text-gray-400 mr-2" />
+              }
+              <span className="text-sm font-medium text-gray-700">Proteger com senha</span>
+            </div>
+            <button
+              onClick={() => setFormData(prev => ({ ...prev, requirePassword: !prev.requirePassword }))}
+              className={`w-12 h-6 rounded-full transition-colors ${
+                formData.requirePassword ? 'bg-slate-600' : 'bg-gray-300'
+              }`}
+            >
+              <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${
+                formData.requirePassword ? 'translate-x-6' : 'translate-x-0.5'
+              }`} />
+            </button>
+          </div>
+
+          {formData.requirePassword && (
+            <input
+              type="password"
+              placeholder="Digite a senha do mural"
+              value={formData.password}
+              onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition-all"
+              maxLength={LIMITS.PASSWORD_MAX_LENGTH}
+            />
+          )}
+
+          <button
+            onClick={handleSubmit}
+            disabled={isLoading || !formData.name.trim()}
+            className={`w-full py-3 rounded-xl font-semibold transition-all duration-200 disabled:opacity-50 transform hover:scale-[1.02] ${
+              panelType === 'couple' 
+                ? 'bg-gradient-to-r from-rose-500 to-pink-600 text-white hover:from-rose-600 hover:to-pink-700'
+                : 'bg-gradient-to-r from-slate-600 to-gray-700 text-white hover:from-slate-700 hover:to-gray-800'
+            } disabled:cursor-not-allowed disabled:transform-none`}
+          >
+            {isLoading ? 'Criando...' : `Criar ${panelType === 'couple' ? 'Mural Romântico' : 'Mural'}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Componente de Acesso a Painel
+function JoinPanelScreen({ onBack, username }) {
+  const { userId } = useUser();
+  const [formData, setFormData] = useState({
+    code: '',
+    password: ''
+  });
+  const [requiresPassword, setRequiresPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [currentPanel, setCurrentPanel] = useState(null);
+
+  // Verificar se painel requer senha quando código mudar
+  useEffect(() => {
+    const checkPassword = async () => {
+      if (formData.code.length === LIMITS.PANEL_CODE_LENGTH) {
+        try {
+          const requires = await apiService.checkPanelRequiresPassword(formData.code);
+          setRequiresPassword(requires);
+        } catch (err) {
+          setError(err.message);
+        }
+      }
+    };
+    
+    checkPassword();
+  }, [formData.code]);
+
+  const handleSubmit = async () => {
+    if (!formData.code.trim()) {
+      setError('Digite o código do painel');
+      return;
+    }
+
+    if (requiresPassword && !formData.password.trim()) {
+      setError('Digite a senha do painel');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await apiService.accessPanel(formData.code.toUpperCase(), {
+        password: formData.password || undefined,
+        userName: username,
+        userId: userId
+      });
+
+      setCurrentPanel(response);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (currentPanel) {
+    return <PanelScreen panel={currentPanel} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-green-100 to-emerald-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-md w-full border border-gray-100">
+        <button
+          onClick={onBack}
+          className="mb-6 text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1 text-sm"
+        >
+          ← Voltar
+        </button>
+
+        <div className="flex items-center justify-center mb-8">
+          <Hash className="w-10 h-10 text-green-600 mr-3" />
+          <h2 className="text-4xl font-bold text-gray-800">Acessar Mural</h2>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Código do Mural
+            </label>
+            <input
+              type="text"
+              placeholder="Ex: ABC123"
+              value={formData.code}
+              onChange={(e) => {
+                const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                setFormData(prev => ({ ...prev, code: value }));
+                if (error) setError('');
+              }}
+              maxLength={LIMITS.PANEL_CODE_LENGTH}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent uppercase font-mono text-lg tracking-wider transition-all"
+            />
+          </div>
+
+          {requiresPassword && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Senha do Mural
+              </label>
+              <input
+                type="password"
+                placeholder="Digite a senha do mural"
+                value={formData.password}
+                onChange={(e) => {
+                  setFormData(prev => ({ ...prev, password: e.target.value }));
+                  if (error) setError('');
+                }}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition-all"
+              />
+            </div>
+          )}
+
+          <button
+            onClick={handleSubmit}
+            disabled={isLoading || !formData.code.trim() || (requiresPassword && !formData.password.trim())}
+            className="w-full py-3 rounded-xl font-semibold transition-all duration-200 disabled:opacity-50 transform hover:scale-[1.02] bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 disabled:cursor-not-allowed disabled:transform-none"
+          >
+            {isLoading ? 'Entrando...' : 'Entrar no Mural'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Componente do Painel (Tela principal do mural)
+function PanelScreen({ panel }) {
+  const { username, userId } = useUser();
+  const [posts, setPosts] = useState([]);
+  const [activeUsers, setActiveUsers] = useState([]);
+  const [showNewPostForm, setShowNewPostForm] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const colors = getColors(panel.type);
+
+  // Carregar dados iniciais
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  // Configurar WebSocket
+  useSocket(
+    panel.id,
+    username,
+    userId,
+    handleNewPost,
+    handlePostMoved,
+    handlePostDeleted,
+    handleUserJoined,
+    handleUserLeft
+  );
+
+  const loadInitialData = async () => {
+    try {
+      setIsLoading(true);
+      const [postsData] = await Promise.all([
+        apiService.getPanelPosts(panel.id)
+      ]);
+      
+      setPosts(postsData);
+    } catch (err) {
+      setError('Erro ao carregar dados');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handlers de WebSocket
+  const handleNewPost = (post) => {
+    setPosts(prev => [post, ...prev]);
+  };
+
+  const handlePostMoved = (post) => {
+    setPosts(prev => prev.map(p => p.id === post.id ? post : p));
+  };
+
+  const handlePostDeleted = ({ postId }) => {
+    setPosts(prev => prev.filter(p => p.id !== postId));
+  };
+
+  const handleUserJoined = ({ userName, userId: joinedUserId }) => {
+    setActiveUsers(prev => {
+      const exists = prev.some(u => u.user_id === joinedUserId);
+      if (!exists) {
+        return [...prev, { user_id: joinedUserId, name: userName }];
+      }
+      return prev;
+    });
+  };
+
+  const handleUserLeft = ({ userId: leftUserId }) => {
+    setActiveUsers(prev => prev.filter(u => u.user_id !== leftUserId));
+  };
+
+  async function handleCreatePost(postData) {
+    try {
+      const post = await apiService.createPost(panel.id, {
+        ...postData,
+        author_id: userId,
+        position_x: Math.floor(Math.random() * 600) + 50,
+        position_y: Math.floor(Math.random() * 300) + 50
+      });
+      
+      // O post será adicionado via WebSocket
+      setShowNewPostForm(false);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleDeletePost(postId) {
+    try {
+      await apiService.deletePost(postId, { panel_id: panel.id });
+      // O post será removido via WebSocket
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleMovePost(postId, x, y) {
+    try {
+      await apiService.updatePostPosition(postId, {
+        position_x: x,
+        position_y: y,
+        panel_id: panel.id
+      });
+      // A posição será atualizada via WebSocket
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  if (isLoading) {
+    return <LoadingSpinner message="Carregando mural..." />;
+  }
+
+  const panelGradient = panel.type === 'couple' ? 
+    'bg-gradient-to-br from-pink-50 to-rose-50' : 
+    'bg-gradient-to-br from-blue-50 to-indigo-50';
+
+  return (
+    <div className={`min-h-screen ${panelGradient}`}>
+      {/* Header */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex
