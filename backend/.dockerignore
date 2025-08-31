@@ -9,3 +9,8 @@ coverage
 .cache
 logs
 *.log
+.DS_Store
+Thumbs.db
+
+# NÃO ignorar package-lock.json - ele é necessário para npm ci
+# package-lock.json

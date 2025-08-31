@@ -19,7 +19,7 @@ const getColors = (type) => {
 };
 
 // Componente de Loading
-function LoadingSpinner({ message = 'Carregando...' }) {
+const LoadingSpinner = ({ message = 'Carregando...' }) => {
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="text-center">
@@ -28,10 +28,10 @@ function LoadingSpinner({ message = 'Carregando...' }) {
       </div>
     </div>
   );
-}
+};
 
 // Componente Modal
-function Modal({ isOpen, onClose, title, children, size = 'medium' }) {
+const Modal = ({ isOpen, onClose, title, children, size = 'medium' }) => {
   if (!isOpen) return null;
 
   const sizeClasses = {
@@ -60,16 +60,16 @@ function Modal({ isOpen, onClose, title, children, size = 'medium' }) {
       </div>
     </div>
   );
-}
+};
 
 // Componente de Formulário de Post
-function NewPostForm({ onSubmit, onCancel, colors }) {
+const NewPostForm = ({ onSubmit, onCancel, colors }) => {
   const [content, setContent] = useState('');
   const [color, setColor] = useState(colors.notes[0]);
   const [authorName, setAuthorName] = useState('');
   const [anonymous, setAnonymous] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = useCallback((e) => {
     e.preventDefault();
     if (!content.trim()) return;
 
@@ -82,7 +82,7 @@ function NewPostForm({ onSubmit, onCancel, colors }) {
     setContent('');
     setAuthorName('');
     setAnonymous(false);
-  };
+  }, [content, color, anonymous, authorName, onSubmit]);
 
   return (
     <Modal isOpen={true} onClose={onCancel} title="Nova Mensagem">
@@ -171,15 +171,15 @@ function NewPostForm({ onSubmit, onCancel, colors }) {
       </form>
     </Modal>
   );
-}
+};
 
 // Tela de Boas-vindas
-function WelcomeScreen() {
+const WelcomeScreen = () => {
   const { setUsername, error, setError } = useUser();
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     if (!name.trim()) {
       setError('Digite seu nome');
       return;
@@ -192,7 +192,7 @@ function WelcomeScreen() {
     if (success) {
       setError(null);
     }
-  };
+  }, [name, setUsername, setError]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-50 to-pink-100 flex items-center justify-center p-4">
@@ -239,10 +239,10 @@ function WelcomeScreen() {
       </div>
     </div>
   );
-}
+};
 
 // Tela Principal
-function HomeScreen() {
+const HomeScreen = () => {
   const { username, clearUser } = useUser();
   const [currentScreen, setCurrentScreen] = useState('home');
   const [panelType, setPanelType] = useState('');
@@ -377,10 +377,10 @@ function HomeScreen() {
       </div>
     </div>
   );
-}
+};
 
 // Componente de Criação de Painel
-function CreatePanelScreen({ panelType, onBack, username }) {
+const CreatePanelScreen = ({ panelType, onBack, username }) => {
   const { userId } = useUser();
   const [formData, setFormData] = useState({
     name: '',
@@ -402,9 +402,11 @@ function CreatePanelScreen({ panelType, onBack, username }) {
       borderColor: colors.borders[0],
       backgroundColor: colors.backgrounds[0]
     }));
-  }, [panelType]);
+  }, [panelType, colors.borders, colors.backgrounds]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
+    console.log('🔄 Iniciando criação de painel...');
+    
     if (!formData.name.trim()) {
       setError('Digite um nome para o painel');
       return;
@@ -414,6 +416,16 @@ function CreatePanelScreen({ panelType, onBack, username }) {
     setError('');
 
     try {
+      console.log('📤 Dados sendo enviados:', {
+        name: formData.name,
+        type: panelType,
+        password: formData.requirePassword ? formData.password : null,
+        creator: username,
+        userId: userId,
+        borderColor: formData.borderColor,
+        backgroundColor: formData.backgroundColor
+      });
+
       const response = await apiService.createPanel({
         name: formData.name,
         type: panelType,
@@ -424,15 +436,18 @@ function CreatePanelScreen({ panelType, onBack, username }) {
         backgroundColor: formData.backgroundColor
       });
 
+      console.log('✅ Painel criado com sucesso:', response);
       setCurrentPanel(response);
     } catch (err) {
-      setError(err.message);
+      console.error('❌ Erro ao criar painel:', err);
+      setError(err.message || 'Erro ao criar painel');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [formData, panelType, username, userId]);
 
   if (currentPanel) {
+    console.log('🎯 Redirecionando para o painel:', currentPanel);
     return <PanelScreen panel={currentPanel} />;
   }
 
@@ -570,10 +585,10 @@ function CreatePanelScreen({ panelType, onBack, username }) {
       </div>
     </div>
   );
-}
+};
 
 // Componente de Acesso a Painel
-function JoinPanelScreen({ onBack, username }) {
+const JoinPanelScreen = ({ onBack, username }) => {
   const { userId } = useUser();
   const [formData, setFormData] = useState({
     code: '',
@@ -600,7 +615,7 @@ function JoinPanelScreen({ onBack, username }) {
     checkPassword();
   }, [formData.code]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     if (!formData.code.trim()) {
       setError('Digite o código do painel');
       return;
@@ -627,7 +642,7 @@ function JoinPanelScreen({ onBack, username }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [formData, requiresPassword, username, userId]);
 
   if (currentPanel) {
     return <PanelScreen panel={currentPanel} />;
@@ -702,10 +717,10 @@ function JoinPanelScreen({ onBack, username }) {
       </div>
     </div>
   );
-}
+};
 
 // Componente do Painel (Tela principal do mural)
-function PanelScreen({ panel }) {
+const PanelScreen = ({ panel }) => {
   const { username, userId } = useUser();
   const [posts, setPosts] = useState([]);
   const [activeUsers, setActiveUsers] = useState([]);
@@ -719,7 +734,54 @@ function PanelScreen({ panel }) {
 
   // Carregar dados iniciais
   useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        console.log('🔄 Carregando posts do painel:', panel.id);
+        setIsLoading(true);
+        const postsData = await apiService.getPanelPosts(panel.id);
+        console.log('✅ Posts carregados:', postsData);
+        setPosts(postsData);
+      } catch (err) {
+        console.error('❌ Erro ao carregar posts:', err);
+        setError('Erro ao carregar dados');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     loadInitialData();
+  }, [panel.id]);
+
+  // Handlers de WebSocket
+  const handleNewPost = useCallback((post) => {
+    console.log('📝 Novo post recebido via WebSocket:', post);
+    setPosts(prev => [post, ...prev]);
+  }, []);
+
+  const handlePostMoved = useCallback((post) => {
+    console.log('🔄 Post movido via WebSocket:', post);
+    setPosts(prev => prev.map(p => p.id === post.id ? post : p));
+  }, []);
+
+  const handlePostDeleted = useCallback(({ postId }) => {
+    console.log('🗑️ Post deletado via WebSocket:', postId);
+    setPosts(prev => prev.filter(p => p.id !== postId));
+  }, []);
+
+  const handleUserJoined = useCallback(({ userName, userId: joinedUserId }) => {
+    console.log('👋 Usuário entrou:', userName);
+    setActiveUsers(prev => {
+      const exists = prev.some(u => u.user_id === joinedUserId);
+      if (!exists) {
+        return [...prev, { user_id: joinedUserId, name: userName }];
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleUserLeft = useCallback(({ userId: leftUserId }) => {
+    console.log('👋 Usuário saiu:', leftUserId);
+    setActiveUsers(prev => prev.filter(u => u.user_id !== leftUserId));
   }, []);
 
   // Configurar WebSocket
@@ -734,47 +796,9 @@ function PanelScreen({ panel }) {
     handleUserLeft
   );
 
-  const loadInitialData = async () => {
+  const handleCreatePost = useCallback(async (postData) => {
     try {
-      setIsLoading(true);
-      const postsData = await apiService.getPanelPosts(panel.id);
-      setPosts(postsData);
-    } catch (err) {
-      setError('Erro ao carregar dados');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handlers de WebSocket
-  const handleNewPost = (post) => {
-    setPosts(prev => [post, ...prev]);
-  };
-
-  const handlePostMoved = (post) => {
-    setPosts(prev => prev.map(p => p.id === post.id ? post : p));
-  };
-
-  const handlePostDeleted = ({ postId }) => {
-    setPosts(prev => prev.filter(p => p.id !== postId));
-  };
-
-  const handleUserJoined = ({ userName, userId: joinedUserId }) => {
-    setActiveUsers(prev => {
-      const exists = prev.some(u => u.user_id === joinedUserId);
-      if (!exists) {
-        return [...prev, { user_id: joinedUserId, name: userName }];
-      }
-      return prev;
-    });
-  };
-
-  const handleUserLeft = ({ userId: leftUserId }) => {
-    setActiveUsers(prev => prev.filter(u => u.user_id !== leftUserId));
-  };
-
-  const handleCreatePost = async (postData) => {
-    try {
+      console.log('📝 Criando novo post:', postData);
       await apiService.createPost(panel.id, {
         ...postData,
         author_id: userId,
@@ -783,32 +807,40 @@ function PanelScreen({ panel }) {
       });
       
       setShowNewPostForm(false);
+      console.log('✅ Post criado com sucesso');
     } catch (err) {
+      console.error('❌ Erro ao criar post:', err);
       setError(err.message);
     }
-  };
+  }, [panel.id, userId]);
 
-  const handleDeletePost = async (postId) => {
+  const handleDeletePost = useCallback(async (postId) => {
     try {
+      console.log('🗑️ Deletando post:', postId);
       await apiService.deletePost(postId, { panel_id: panel.id });
+      console.log('✅ Post deletado com sucesso');
     } catch (err) {
+      console.error('❌ Erro ao deletar post:', err);
       setError(err.message);
     }
-  };
+  }, [panel.id]);
 
-  const handleMovePost = async (postId, x, y) => {
+  const handleMovePost = useCallback(async (postId, x, y) => {
     try {
+      console.log('🔄 Movendo post:', postId, { x, y });
       await apiService.updatePostPosition(postId, {
         position_x: x,
         position_y: y,
         panel_id: panel.id
       });
+      console.log('✅ Post movido com sucesso');
     } catch (err) {
+      console.error('❌ Erro ao mover post:', err);
       setError(err.message);
     }
-  };
+  }, [panel.id]);
 
-  const handleShare = async () => {
+  const handleShare = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(panel.id);
       setCopied(true);
@@ -816,7 +848,7 @@ function PanelScreen({ panel }) {
     } catch (err) {
       console.error('Erro ao copiar:', err);
     }
-  };
+  }, [panel.id]);
 
   if (isLoading) {
     return <LoadingSpinner message="Carregando mural..." />;
@@ -948,10 +980,10 @@ function PanelScreen({ panel }) {
       )}
     </div>
   );
-}
+};
 
 // Componente Principal da Aplicação
-function AppContent() {
+const AppContent = () => {
   const { username, isLoading } = useUser();
 
   if (isLoading) {
@@ -963,16 +995,15 @@ function AppContent() {
   }
 
   return <HomeScreen />;
-}
+};
 
 // App Principal
-function App() {
+const App = () => {
   return (
     <UserProvider>
       <AppContent />
     </UserProvider>
   );
-}
+};
 
 export default App;
-    
