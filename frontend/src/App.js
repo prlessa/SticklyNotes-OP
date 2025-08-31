@@ -62,6 +62,117 @@ function Modal({ isOpen, onClose, title, children, size = 'medium' }) {
   );
 }
 
+// Componente de Formulário de Post
+function NewPostForm({ onSubmit, onCancel, colors }) {
+  const [content, setContent] = useState('');
+  const [color, setColor] = useState(colors.notes[0]);
+  const [authorName, setAuthorName] = useState('');
+  const [anonymous, setAnonymous] = useState(false);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!content.trim()) return;
+
+    onSubmit({
+      content: content.trim(),
+      color,
+      author_name: anonymous ? null : authorName.trim() || null
+    });
+
+    setContent('');
+    setAuthorName('');
+    setAnonymous(false);
+  };
+
+  return (
+    <Modal isOpen={true} onClose={onCancel} title="Nova Mensagem">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Sua mensagem
+          </label>
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Escreva sua mensagem..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            rows={4}
+            maxLength={LIMITS.POST_CONTENT_MAX_LENGTH}
+            required
+          />
+          <div className="text-right text-xs text-gray-500 mt-1">
+            {content.length}/{LIMITS.POST_CONTENT_MAX_LENGTH}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={anonymous}
+              onChange={(e) => setAnonymous(e.target.checked)}
+              className="mr-2"
+            />
+            <span className="text-sm text-gray-700">Postar anonimamente</span>
+          </label>
+        </div>
+
+        {!anonymous && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Seu nome (opcional)
+            </label>
+            <input
+              type="text"
+              value={authorName}
+              onChange={(e) => setAuthorName(e.target.value)}
+              placeholder="Digite seu nome..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              maxLength={LIMITS.USERNAME_MAX_LENGTH}
+            />
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Cor da nota
+          </label>
+          <div className="flex gap-2">
+            {colors.notes.map(noteColor => (
+              <button
+                key={noteColor}
+                type="button"
+                onClick={() => setColor(noteColor)}
+                className={`w-8 h-8 rounded-full border-2 transition-all ${
+                  color === noteColor ? 'border-gray-800 scale-110' : 'border-gray-300'
+                }`}
+                style={{ backgroundColor: noteColor }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={!content.trim()}
+            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Postar
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 // Tela de Boas-vindas
 function WelcomeScreen() {
   const { setUsername, error, setError } = useUser();
@@ -602,6 +713,7 @@ function PanelScreen({ panel }) {
   const [showShareModal, setShowShareModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const colors = getColors(panel.type);
 
@@ -625,10 +737,7 @@ function PanelScreen({ panel }) {
   const loadInitialData = async () => {
     try {
       setIsLoading(true);
-      const [postsData] = await Promise.all([
-        apiService.getPanelPosts(panel.id)
-      ]);
-      
+      const postsData = await apiService.getPanelPosts(panel.id);
       setPosts(postsData);
     } catch (err) {
       setError('Erro ao carregar dados');
@@ -664,43 +773,50 @@ function PanelScreen({ panel }) {
     setActiveUsers(prev => prev.filter(u => u.user_id !== leftUserId));
   };
 
-  async function handleCreatePost(postData) {
+  const handleCreatePost = async (postData) => {
     try {
-      const post = await apiService.createPost(panel.id, {
+      await apiService.createPost(panel.id, {
         ...postData,
         author_id: userId,
         position_x: Math.floor(Math.random() * 600) + 50,
         position_y: Math.floor(Math.random() * 300) + 50
       });
       
-      // O post será adicionado via WebSocket
       setShowNewPostForm(false);
     } catch (err) {
       setError(err.message);
     }
-  }
+  };
 
-  async function handleDeletePost(postId) {
+  const handleDeletePost = async (postId) => {
     try {
       await apiService.deletePost(postId, { panel_id: panel.id });
-      // O post será removido via WebSocket
     } catch (err) {
       setError(err.message);
     }
-  }
+  };
 
-  async function handleMovePost(postId, x, y) {
+  const handleMovePost = async (postId, x, y) => {
     try {
       await apiService.updatePostPosition(postId, {
         position_x: x,
         position_y: y,
         panel_id: panel.id
       });
-      // A posição será atualizada via WebSocket
     } catch (err) {
       setError(err.message);
     }
-  }
+  };
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(panel.id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Erro ao copiar:', err);
+    }
+  };
 
   if (isLoading) {
     return <LoadingSpinner message="Carregando mural..." />;
@@ -716,4 +832,147 @@ function PanelScreen({ panel }) {
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex
+            <div className="flex items-center">
+              <div 
+                className="w-4 h-4 rounded-full mr-3"
+                style={{ backgroundColor: panel.border_color }}
+              />
+              <h1 className="text-xl font-bold text-gray-800">{panel.name}</h1>
+              <span className="ml-3 px-2 py-1 bg-gray-100 rounded text-xs text-gray-600 font-mono">
+                {panel.id}
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <div className="flex items-center text-sm text-gray-600">
+                <Users className="w-4 h-4 mr-1" />
+                {activeUsers.length} online
+              </div>
+              
+              <button
+                onClick={() => setShowShareModal(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              >
+                <Share2 className="w-4 h-4" />
+                Compartilhar
+              </button>
+              
+              <button
+                onClick={() => setShowNewPostForm(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Nova Nota
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Área do Mural */}
+      <div 
+        className="relative min-h-screen p-8"
+        style={{ backgroundColor: panel.background_color }}
+      >
+        {posts.map(post => (
+          <PostIt
+            key={post.id}
+            post={post}
+            onDelete={handleDeletePost}
+            onMove={handleMovePost}
+            currentUserId={userId}
+            canDelete={true}
+          />
+        ))}
+        
+        {posts.length === 0 && (
+          <div className="text-center text-gray-500 mt-20">
+            <StickyNote className="w-16 h-16 mx-auto mb-4 opacity-50" />
+            <p className="text-lg">Seu mural está vazio</p>
+            <p className="text-sm">Clique em "Nova Nota" para começar!</p>
+          </div>
+        )}
+      </div>
+
+      {/* Modal de Nova Nota */}
+      {showNewPostForm && (
+        <NewPostForm
+          onSubmit={handleCreatePost}
+          onCancel={() => setShowNewPostForm(false)}
+          colors={colors}
+        />
+      )}
+
+      {/* Modal de Compartilhamento */}
+      <Modal 
+        isOpen={showShareModal} 
+        onClose={() => setShowShareModal(false)}
+        title="Compartilhar Mural"
+        size="small"
+      >
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">
+            Compartilhe este código com seus amigos:
+          </p>
+          
+          <div className="bg-gray-100 rounded-lg p-4 mb-4">
+            <div className="font-mono text-2xl font-bold text-gray-800 tracking-wider">
+              {panel.id}
+            </div>
+          </div>
+          
+          <button
+            onClick={handleShare}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copied ? 'Copiado!' : 'Copiar Código'}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Toast de Erro */}
+      {error && (
+        <div className="fixed bottom-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+            <button 
+              onClick={() => setError('')}
+              className="ml-2 hover:bg-red-600 rounded p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Componente Principal da Aplicação
+function AppContent() {
+  const { username, isLoading } = useUser();
+
+  if (isLoading) {
+    return <LoadingSpinner message="Inicializando..." />;
+  }
+
+  if (!username) {
+    return <WelcomeScreen />;
+  }
+
+  return <HomeScreen />;
+}
+
+// App Principal
+function App() {
+  return (
+    <UserProvider>
+      <AppContent />
+    </UserProvider>
+  );
+}
+
+export default App;
+    

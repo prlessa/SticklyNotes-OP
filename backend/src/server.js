@@ -8,7 +8,6 @@ const { Server } = require('socket.io');
 
 const config = require('./config/config');
 const logger = require('./utils/logger');
-const { connectRedis, connectDatabase } = require('./config/database');
 const panelService = require('./services/panelService');
 
 class SticklyNotesServer {
