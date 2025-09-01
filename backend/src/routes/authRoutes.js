@@ -352,25 +352,67 @@ router.get('/me', authenticateToken, async (req, res) => {
  */
 router.get('/my-panels', authenticateToken, async (req, res) => {
   try {
-    const result = await db.query(`
-      SELECT DISTINCT 
+    console.log('🔍 Buscando painéis para usuário:', req.user.userId);
+
+    // Primeiro, buscar painéis onde o usuário é criador
+    const createdPanels = await db.query(`
+      SELECT 
+        p.id, p.name, p.type, p.background_color, 
+        p.created_at, p.last_activity,
+        p.created_at as last_access,
+        (SELECT COUNT(*)::INTEGER FROM posts WHERE panel_id = p.id) as post_count,
+        (SELECT COUNT(*)::INTEGER FROM active_users WHERE panel_id = p.id AND last_seen > NOW() - INTERVAL '10 minutes') as active_users
+      FROM panels p
+      WHERE p.creator_user_id = $1
+    `, [req.user.userId]);
+
+    console.log('📋 Painéis criados encontrados:', createdPanels.rows.length);
+
+    // Depois, buscar painéis onde o usuário participa
+    const participantPanels = await db.query(`
+      SELECT DISTINCT
         p.id, p.name, p.type, p.background_color, 
         p.created_at, p.last_activity,
         pp.last_access,
-        (SELECT COUNT(*) FROM posts WHERE panel_id = p.id) as post_count,
-        (SELECT COUNT(*) FROM active_users WHERE panel_id = p.id) as active_users
+        (SELECT COUNT(*)::INTEGER FROM posts WHERE panel_id = p.id) as post_count,
+        (SELECT COUNT(*)::INTEGER FROM active_users WHERE panel_id = p.id AND last_seen > NOW() - INTERVAL '10 minutes') as active_users
       FROM panels p
-      LEFT JOIN panel_participants pp ON p.id = pp.panel_id AND pp.user_uuid = $1
-      WHERE p.creator_user_id = $1 OR pp.user_uuid = $1
-      ORDER BY COALESCE(pp.last_access, p.created_at) DESC
+      INNER JOIN panel_participants pp ON p.id = pp.panel_id
+      WHERE pp.user_uuid = $1 AND p.creator_user_id != $1
     `, [req.user.userId]);
 
-    res.json(result.rows);
+    console.log('👥 Painéis participante encontrados:', participantPanels.rows.length);
+
+    // Combinar e remover duplicatas
+    const allPanels = [...createdPanels.rows, ...participantPanels.rows];
+    const uniquePanels = allPanels.filter((panel, index, self) => 
+      index === self.findIndex(p => p.id === panel.id)
+    );
+
+    // Ordenar por última atividade
+    uniquePanels.sort((a, b) => {
+      const dateA = new Date(a.last_access || a.created_at);
+      const dateB = new Date(b.last_access || b.created_at);
+      return dateB - dateA;
+    });
+
+    console.log('✅ Total de painéis únicos:', uniquePanels.length);
+
+    res.json(uniquePanels);
 
   } catch (error) {
-    console.error('❌ Erro ao buscar painéis:', error);
+    console.error('❌ Erro detalhado ao buscar painéis:', {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      stack: error.stack
+    });
+    
     res.status(500).json({
-      error: 'Erro ao buscar painéis'
+      error: 'Erro ao buscar painéis',
+      ...(process.env.NODE_ENV === 'development' && { 
+        details: error.message 
+      })
     });
   }
 });
