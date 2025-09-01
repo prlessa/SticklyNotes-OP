@@ -1,38 +1,27 @@
 <!DOCTYPE html>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>" />
 <html lang="pt-BR">
-  <head>
+  <head >
     <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
     <meta name="description" content="Stickly Notes - Murais colaborativos" />
     <title>Stickly Notes</title>
     
-    <!-- Tailwind CSS - configuração limpa sem warnings -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Configuração do Tailwind -->
+    <!-- Tailwind CSS - apenas para desenvolvimento -->
     <script>
-      // Suprimir warnings do Tailwind CDN
-      window.tailwindConfig = {
-        theme: {
-          extend: {}
+      // Suprimir warning do Tailwind CDN
+      const originalConsoleWarn = console.warn;
+      console.warn = function(...args) {
+        const message = args.join(' ');
+        if (message.includes('cdn.tailwindcss.com should not be used in production')) {
+          return; // Suprimir apenas este warning específico
         }
+        originalConsoleWarn.apply(console, args);
       };
-      
-      // Suprimir console warnings em desenvolvimento
-      if (window.location.hostname === 'localhost') {
-        const originalWarn = console.warn;
-        console.warn = function(...args) {
-          const message = args.join(' ');
-          if (message.includes('cdn.tailwindcss.com should not be used in production') ||
-              message.includes('line-clamp') ||
-              message.includes('@tailwindcss/line-clamp')) {
-            return; // Suprimir estes warnings específicos
-          }
-          originalWarn.apply(console, args);
-        };
-      }
     </script>
+    <script src="https://cdn.tailwindcss.com"></script>
   </head>
   <body>
     <noscript>Você precisa habilitar JavaScript para usar este app.</noscript>

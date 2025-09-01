@@ -8,12 +8,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: stickly_notes_db
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d stickly_notes_db"]
@@ -43,10 +41,10 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3001
-      REDIS_URL: redis://redis:6379
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/stickly_notes_db
+      REDIS_URL: redis://redis:6379
       FRONTEND_URL: http://localhost:3000
-      JWT_SECRET: seu-jwt-secret-muito-seguro-aqui
+      JWT_SECRET: desenvolvimento-jwt-secret-muito-seguro-aqui
       BCRYPT_ROUNDS: 10
       LOG_LEVEL: info
     ports:
@@ -58,7 +56,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
     volumes:
-      - ./backend/src:/app/src:ro
       - ./backend/logs:/app/logs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
@@ -86,9 +83,7 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
   redis_data:
-    driver: local
 
 networks:
   default:

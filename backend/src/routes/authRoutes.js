@@ -1,8 +1,3 @@
-/**
- * Rotas para autenticação de usuários
- * Contém endpoints para registro, login e gerenciamento de conta
- */
-
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -19,6 +14,7 @@ const router = express.Router();
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('❌ Validation errors:', errors.array());
     return res.status(400).json({
       error: 'Dados inválidos',
       details: errors.array()
@@ -40,6 +36,7 @@ const authenticateToken = (req, res, next) => {
 
   jwt.verify(token, config.security.jwtSecret, (err, user) => {
     if (err) {
+      console.log('❌ JWT verification failed:', err.message);
       return res.status(403).json({ error: 'Token inválido' });
     }
     req.user = user;
@@ -54,18 +51,26 @@ const authenticateToken = (req, res, next) => {
 router.post('/register',
   [
     body('firstName')
+      .trim()
       .isLength({ min: 2, max: 50 })
-      .withMessage('Nome deve ter entre 2 e 50 caracteres'),
+      .withMessage('Nome deve ter entre 2 e 50 caracteres')
+      .matches(/^[a-zA-ZÀ-ÿ\u00f1\u00d1\s]+$/)
+      .withMessage('Nome deve conter apenas letras e espaços'),
     body('lastName')
+      .trim()
       .isLength({ min: 2, max: 50 })
-      .withMessage('Sobrenome deve ter entre 2 e 50 caracteres'),
+      .withMessage('Sobrenome deve ter entre 2 e 50 caracteres')
+      .matches(/^[a-zA-ZÀ-ÿ\u00f1\u00d1\s]+$/)
+      .withMessage('Sobrenome deve conter apenas letras e espaços'),
     body('email')
       .isEmail()
       .withMessage('Email inválido')
-      .normalizeEmail(),
+      .normalizeEmail()
+      .isLength({ max: 255 })
+      .withMessage('Email muito longo'),
     body('password')
-      .isLength({ min: 6 })
-      .withMessage('Senha deve ter pelo menos 6 caracteres'),
+      .isLength({ min: 6, max: 100 })
+      .withMessage('Senha deve ter entre 6 e 100 caracteres'),
     body('birthDate')
       .isISO8601()
       .toDate()
@@ -74,58 +79,90 @@ router.post('/register',
         const today = new Date();
         const birthDate = new Date(value);
         const age = today.getFullYear() - birthDate.getFullYear();
+        
         if (age < 13) {
           throw new Error('Deve ter pelo menos 13 anos');
         }
+        if (age > 120) {
+          throw new Error('Data de nascimento inválida');
+        }
+        
         return true;
       })
   ],
   handleValidationErrors,
   async (req, res) => {
+    console.log('🔄 Tentativa de registro:', {
+      email: req.body.email,
+      firstName: req.body.firstName,
+      lastName: req.body.lastName
+    });
+
     try {
       const { firstName, lastName, email, password, birthDate } = req.body;
 
       // Verificar se email já existe
+      console.log('🔍 Verificando se email já existe...');
       const existingUser = await db.query(
-        'SELECT id FROM users WHERE email = $1',
-        [email]
+        'SELECT id, email FROM users WHERE email = $1',
+        [email.toLowerCase()]
       );
 
       if (existingUser.rows.length > 0) {
+        console.log('⚠️ Email já existe:', email);
         return res.status(400).json({
-          error: 'Email já está em uso'
+          error: 'Este email já está em uso'
         });
       }
 
       // Hash da senha
-      const saltRounds = 12;
+      console.log('🔐 Criando hash da senha...');
+      const saltRounds = config.security.bcryptRounds || 12;
       const passwordHash = await bcrypt.hash(password, saltRounds);
 
       // Criar usuário
+      console.log('👤 Criando usuário no banco...');
       const result = await db.query(`
         INSERT INTO users (first_name, last_name, email, password_hash, birth_date)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id, first_name, last_name, email, birth_date, created_at
-      `, [firstName, lastName, email, passwordHash, birthDate]);
+      `, [
+        firstName.trim(),
+        lastName.trim(), 
+        email.toLowerCase(), 
+        passwordHash, 
+        birthDate
+      ]);
 
       const user = result.rows[0];
+      console.log('✅ Usuário criado:', { id: user.id, email: user.email });
 
       // Gerar JWT
+      console.log('🎫 Gerando token JWT...');
+      const tokenPayload = {
+        userId: user.id,
+        email: user.email,
+        name: `${user.first_name} ${user.last_name}`
+      };
+
       const token = jwt.sign(
-        { 
-          userId: user.id,
-          email: user.email 
-        },
+        tokenPayload,
         config.security.jwtSecret,
-        { expiresIn: '7d' }
+        { 
+          expiresIn: '7d',
+          issuer: 'stickly-notes',
+          audience: 'stickly-users'
+        }
       );
 
-      logger.info('Novo usuário registrado', {
+      // Log de sucesso
+      console.log('🎉 Registro concluído com sucesso:', {
         userId: user.id,
         email: user.email,
         name: `${user.first_name} ${user.last_name}`
       });
 
+      // Resposta
       res.status(201).json({
         token,
         user: {
@@ -139,9 +176,36 @@ router.post('/register',
       });
 
     } catch (error) {
-      logger.error('Erro ao registrar usuário:', error);
+      console.error('❌ Erro detalhado no registro:', {
+        message: error.message,
+        code: error.code,
+        detail: error.detail,
+        constraint: error.constraint,
+        stack: error.stack
+      });
+
+      // Erro específico para violação de constraint
+      if (error.code === '23505') { // unique_violation
+        if (error.constraint && error.constraint.includes('email')) {
+          return res.status(400).json({
+            error: 'Este email já está em uso'
+          });
+        }
+      }
+
+      // Erro de validação do banco
+      if (error.code === '23514') { // check_constraint_violation
+        return res.status(400).json({
+          error: 'Dados inválidos fornecidos'
+        });
+      }
+
+      // Erro genérico
       res.status(500).json({
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor',
+        ...(config.server.nodeEnv === 'development' && { 
+          details: error.message 
+        })
       });
     }
   }
@@ -163,16 +227,19 @@ router.post('/login',
   ],
   handleValidationErrors,
   async (req, res) => {
+    console.log('🔄 Tentativa de login:', { email: req.body.email });
+
     try {
       const { email, password } = req.body;
 
       // Buscar usuário
       const result = await db.query(
-        'SELECT * FROM users WHERE email = $1',
-        [email]
+        'SELECT id, first_name, last_name, email, password_hash, created_at FROM users WHERE email = $1',
+        [email.toLowerCase()]
       );
 
       if (result.rows.length === 0) {
+        console.log('⚠️ Usuário não encontrado:', email);
         return res.status(401).json({
           error: 'Email ou senha incorretos'
         });
@@ -183,11 +250,7 @@ router.post('/login',
       // Verificar senha
       const isValidPassword = await bcrypt.compare(password, user.password_hash);
       if (!isValidPassword) {
-        logger.security('Tentativa de login com senha incorreta', {
-          email,
-          ip: req.ip
-        });
-
+        console.log('⚠️ Senha incorreta para:', email);
         return res.status(401).json({
           error: 'Email ou senha incorretos'
         });
@@ -197,16 +260,20 @@ router.post('/login',
       const token = jwt.sign(
         { 
           userId: user.id,
-          email: user.email 
+          email: user.email,
+          name: `${user.first_name} ${user.last_name}`
         },
         config.security.jwtSecret,
-        { expiresIn: '7d' }
+        { 
+          expiresIn: '7d',
+          issuer: 'stickly-notes',
+          audience: 'stickly-users'
+        }
       );
 
-      logger.info('Login realizado', {
-        userId: user.id,
-        email: user.email,
-        ip: req.ip
+      console.log('✅ Login realizado:', { 
+        userId: user.id, 
+        email: user.email 
       });
 
       res.json({
@@ -216,13 +283,12 @@ router.post('/login',
           firstName: user.first_name,
           lastName: user.last_name,
           email: user.email,
-          birthDate: user.birth_date,
           createdAt: user.created_at
         }
       });
 
     } catch (error) {
-      logger.error('Erro ao fazer login:', error);
+      console.error('❌ Erro no login:', error);
       res.status(500).json({
         error: 'Erro interno do servidor'
       });
@@ -259,7 +325,7 @@ router.get('/me', authenticateToken, async (req, res) => {
     });
 
   } catch (error) {
-    logger.error('Erro ao buscar dados do usuário:', error);
+    console.error('❌ Erro ao buscar usuário:', error);
     res.status(500).json({
       error: 'Erro interno do servidor'
     });
@@ -280,15 +346,15 @@ router.get('/my-panels', authenticateToken, async (req, res) => {
         (SELECT COUNT(*) FROM posts WHERE panel_id = p.id) as post_count,
         (SELECT COUNT(*) FROM active_users WHERE panel_id = p.id) as active_users
       FROM panels p
-      LEFT JOIN panel_participants pp ON p.id = pp.panel_id
+      LEFT JOIN panel_participants pp ON p.id = pp.panel_id AND pp.user_uuid = $1
       WHERE p.creator_user_id = $1 OR pp.user_uuid = $1
-      ORDER BY pp.last_access DESC, p.last_activity DESC
+      ORDER BY COALESCE(pp.last_access, p.created_at) DESC
     `, [req.user.userId]);
 
     res.json(result.rows);
 
   } catch (error) {
-    logger.error('Erro ao buscar painéis do usuário:', error);
+    console.error('❌ Erro ao buscar painéis:', error);
     res.status(500).json({
       error: 'Erro ao buscar painéis'
     });
@@ -300,7 +366,7 @@ router.get('/my-panels', authenticateToken, async (req, res) => {
  * Logout (invalidar token - client-side principalmente)
  */
 router.post('/logout', authenticateToken, (req, res) => {
-  logger.info('Logout realizado', {
+  console.log('👋 Logout realizado:', {
     userId: req.user.userId,
     email: req.user.email
   });
