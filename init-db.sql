@@ -51,7 +51,7 @@ CREATE TRIGGER trigger_update_users_updated_at
 -- Inserir usuário de teste
 INSERT INTO users (first_name, last_name, email, password_hash, birth_date)
 VALUES 
-  ('Demo', 'User', 'demo@example.com', '$2a$10$example.hash', '1990-01-01')
+  ('Demo', 'User', 'prlessajunior@gmail.com', 'QWERT1234', '1990-01-01')
 ON CONFLICT (email) DO NOTHING;
 
 \echo 'Database schema updated successfully for user authentication!';

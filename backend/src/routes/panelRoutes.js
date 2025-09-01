@@ -29,6 +29,174 @@ const handleValidationErrors = (req, res, next) => {
 };
 
 /**
+ * GET /api/panels/:code/posts
+ * Obtém posts de um painel
+ */
+router.get('/:code/posts', authenticateToken,
+  [
+    param('code')
+      .isLength({ min: 6, max: 6 })
+      .isAlphanumeric()
+      .withMessage('Código inválido')
+  ],
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { code } = req.params;
+      const upperCode = code.toUpperCase();
+      
+      // Verificar se painel existe
+      const panelResult = await db.query(
+        'SELECT id FROM panels WHERE id = $1',
+        [upperCode]
+      );
+      
+      if (panelResult.rows.length === 0) {
+        return res.status(404).json({ 
+          error: 'Painel não encontrado' 
+        });
+      }
+      
+      // Buscar posts
+      const result = await db.query(
+        'SELECT * FROM posts WHERE panel_id = $1 ORDER BY created_at DESC',
+        [upperCode]
+      );
+      
+      res.json(result.rows);
+      
+    } catch (error) {
+      console.error('❌ Erro ao buscar posts:', error);
+      res.status(500).json({ 
+        error: 'Erro ao buscar posts' 
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/panels/:code/posts
+ * Cria um novo post em um painel
+ */
+router.post('/:code/posts', authenticateToken,
+  [
+    param('code')
+      .isLength({ min: 6, max: 6 })
+      .isAlphanumeric()
+      .withMessage('Código inválido'),
+    body('content')
+      .isLength({ min: 1, max: 1000 })
+      .withMessage('Conteúdo deve ter entre 1 e 1000 caracteres'),
+    body('color')
+      .optional()
+      .matches(/^#[0-9A-Fa-f]{6}$/)
+      .withMessage('Cor inválida'),
+    body('position_x')
+      .optional()
+      .isInt({ min: 0, max: 2000 })
+      .withMessage('Posição X inválida'),
+    body('position_y')
+      .optional()
+      .isInt({ min: 0, max: 2000 })
+      .withMessage('Posição Y inválida')
+  ],
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { code } = req.params;
+      const upperCode = code.toUpperCase();
+      const userId = req.user.userId;
+      
+      // Buscar dados do usuário
+      const userResult = await db.query(
+        'SELECT first_name, last_name FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Usuário não encontrado' });
+      }
+
+      const user = userResult.rows[0];
+      const authorName = req.body.anonymous ? null : `${user.first_name} ${user.last_name}`;
+      
+      // Verificar se painel existe e obter tipo
+      const panelResult = await db.query(
+        'SELECT type, post_count, max_users FROM panels WHERE id = $1',
+        [upperCode]
+      );
+      
+      if (panelResult.rows.length === 0) {
+        return res.status(404).json({ 
+          error: 'Painel não encontrado' 
+        });
+      }
+      
+      const panel = panelResult.rows[0];
+      
+      // Verificar limite de posts por painel
+      if (panel.post_count >= (config.limits?.maxPostsPerPanel || 500)) {
+        return res.status(403).json({
+          error: `Limite de posts atingido`
+        });
+      }
+      
+      // Definir cor padrão se não fornecida
+      const defaultColors = config.getDefaultColors ? config.getDefaultColors(panel.type) : { note: '#A8D8EA' };
+      const color = req.body.color || defaultColors.note || '#A8D8EA';
+      
+      // Posições aleatórias se não fornecidas
+      const positionX = req.body.position_x ?? Math.floor(Math.random() * 600) + 50;
+      const positionY = req.body.position_y ?? Math.floor(Math.random() * 300) + 50;
+      
+      // Criar post no banco
+      const result = await db.query(`
+        INSERT INTO posts (
+          panel_id, author_name, author_id, author_user_id, content, color, 
+          position_x, position_y
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *
+      `, [
+        upperCode, 
+        authorName,
+        `user_${userId}`,
+        userId,
+        req.body.content,
+        color,
+        positionX,
+        positionY
+      ]);
+      
+      const post = result.rows[0];
+      
+      // Invalidar cache de posts
+      await cache.invalidate(`posts:${upperCode}`);
+      
+      // Atualizar última atividade do painel
+      await db.query(
+        'UPDATE panels SET last_activity = CURRENT_TIMESTAMP WHERE id = $1',
+        [upperCode]
+      );
+      
+      console.log('✅ Post criado com sucesso:', {
+        postId: post.id,
+        panelId: upperCode,
+        authorId: userId,
+        hasAuthorName: !!authorName
+      });
+      
+      res.status(201).json(post);
+      
+    } catch (error) {
+      console.error('❌ Erro ao criar post:', error);
+      res.status(500).json({ 
+        error: 'Erro ao criar post' 
+      });
+    }
+  }
+);
+
+/**
  * POST /api/panels
  * Cria um novo painel (requer autenticação)
  */
@@ -114,7 +282,7 @@ router.post('/', authenticateToken,
       // Cachear painel (sem senha)
       await cache.cachePanel(code, panel);
       
-      logger.info('Painel criado com sucesso', {
+      console.log('✅ Painel criado com sucesso:', {
         panelId: code,
         type: type,
         creatorId: userId,
@@ -124,7 +292,7 @@ router.post('/', authenticateToken,
       res.status(201).json(panel);
       
     } catch (error) {
-      logger.error('Erro ao criar painel:', error);
+      console.error('❌ Erro ao criar painel:', error);
       
       if (error.code === '23505') {
         return res.status(500).json({
@@ -204,7 +372,7 @@ router.post('/:code', authenticateToken,
         
         const isValidPassword = await verifyPassword(password, panel.password_hash);
         if (!isValidPassword) {
-          logger.security('Tentativa de acesso com senha incorreta', {
+          console.log('⚠️ Tentativa de acesso com senha incorreta:', {
             panelId: upperCode,
             userId,
             ip: req.ip
@@ -248,7 +416,7 @@ router.post('/:code', authenticateToken,
       const safePanel = { ...panel };
       delete safePanel.password_hash;
       
-      logger.info('Acesso ao painel realizado', {
+      console.log('✅ Acesso ao painel realizado:', {
         panelId: upperCode,
         userId,
         userName,
@@ -258,7 +426,7 @@ router.post('/:code', authenticateToken,
       res.json(safePanel);
       
     } catch (error) {
-      logger.error('Erro ao acessar painel:', error);
+      console.error('❌ Erro ao acessar painel:', error);
       res.status(500).json({ 
         error: 'Erro interno do servidor' 
       });
@@ -299,7 +467,7 @@ router.delete('/:code/leave', authenticateToken,
         );
       });
       
-      logger.info('Usuário saiu do painel', {
+      console.log('✅ Usuário saiu do painel:', {
         panelId: upperCode,
         userId
       });
@@ -307,15 +475,13 @@ router.delete('/:code/leave', authenticateToken,
       res.status(204).send();
       
     } catch (error) {
-      logger.error('Erro ao sair do painel:', error);
+      console.error('❌ Erro ao sair do painel:', error);
       res.status(500).json({
         error: 'Erro ao sair do painel'
       });
     }
   }
 );
-
-// Manter outras rotas existentes (GET posts, etc.) com as mesmas assinaturas
 
 /**
  * Funções auxiliares
@@ -372,7 +538,7 @@ async function getActiveUserCount(panelId) {
     );
     return parseInt(result.rows[0].count);
   } catch (error) {
-    logger.error('Erro ao contar usuários ativos:', error);
+    console.error('❌ Erro ao contar usuários ativos:', error);
     return 0;
   }
 }
@@ -388,7 +554,7 @@ async function isUserActive(panelId, userId) {
     );
     return result.rows.length > 0;
   } catch (error) {
-    logger.error('Erro ao verificar usuário ativo:', error);
+    console.error('❌ Erro ao verificar usuário ativo:', error);
     return false;
   }
 }

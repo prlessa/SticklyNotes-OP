@@ -6,7 +6,7 @@
 const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const { db, cache } = require('../config/database');
-const { validatePostCreation } = require('../utils/validators');
+const { authenticateToken } = require('./authRoutes');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 
@@ -27,154 +27,10 @@ const handleValidationErrors = (req, res, next) => {
 };
 
 /**
- * POST /api/posts/:panelId
- * Cria um novo post em um painel
- */
-router.post('/:panelId',
-  [
-    param('panelId')
-      .isLength({ min: 6, max: 6 })
-      .isAlphanumeric()
-      .withMessage('ID do painel inválido'),
-    body('content')
-      .isLength({ min: 1, max: 1000 })
-      .withMessage('Conteúdo deve ter entre 1 e 1000 caracteres'),
-    body('author_id')
-      .notEmpty()
-      .withMessage('ID do autor é obrigatório'),
-    body('author_name')
-      .optional()
-      .isLength({ max: 50 })
-      .withMessage('Nome do autor muito longo'),
-    body('color')
-      .optional()
-      .matches(/^#[0-9A-Fa-f]{6}$/)
-      .withMessage('Cor inválida'),
-    body('position_x')
-      .optional()
-      .isInt({ min: 0, max: 2000 })
-      .withMessage('Posição X inválida'),
-    body('position_y')
-      .optional()
-      .isInt({ min: 0, max: 2000 })
-      .withMessage('Posição Y inválida')
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { panelId } = req.params;
-      const upperPanelId = panelId.toUpperCase();
-      
-      // Verificar se painel existe e obter tipo
-      const panelResult = await db.query(
-        'SELECT type, post_count, max_users FROM panels WHERE id = $1',
-        [upperPanelId]
-      );
-      
-      if (panelResult.rows.length === 0) {
-        return res.status(404).json({ 
-          error: 'Painel não encontrado' 
-        });
-      }
-      
-      const panel = panelResult.rows[0];
-      
-      // Verificar limite de posts por painel
-      if (panel.post_count >= config.limits.maxPostsPerPanel) {
-        return res.status(403).json({
-          error: `Limite de ${config.limits.maxPostsPerPanel} posts atingido`
-        });
-      }
-      
-      // Validar dados do post
-      const validation = validatePostCreation(req.body, panel.type);
-      if (!validation.isValid) {
-        return res.status(400).json({
-          error: 'Dados inválidos',
-          details: validation.errors
-        });
-      }
-      
-      const validData = validation.data;
-      
-      // Verificar se mensagens anônimas são permitidas
-      if (!validData.author_name && panel.type === 'couple') {
-        return res.status(400).json({
-          error: 'Mensagens anônimas não são permitidas em painéis de casal'
-        });
-      }
-      
-      // Definir cor padrão se não fornecida
-      const defaultColors = config.getDefaultColors(panel.type);
-      const color = validData.color || defaultColors.note;
-      
-      // Validar se a cor é permitida para o tipo do painel
-      if (!config.isValidColor(color, panel.type, 'notes')) {
-        return res.status(400).json({
-          error: 'Cor não permitida para este tipo de painel'
-        });
-      }
-      
-      // Posições aleatórias se não fornecidas
-      const positionX = validData.position_x ?? Math.floor(Math.random() * 600) + 50;
-      const positionY = validData.position_y ?? Math.floor(Math.random() * 300) + 50;
-      
-      // Criar post no banco
-      const result = await db.query(`
-        INSERT INTO posts (
-          panel_id, author_name, author_id, content, color, 
-          position_x, position_y
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING *
-      `, [
-        upperPanelId, 
-        validData.author_name || null,
-        req.body.author_id,
-        validData.content,
-        color,
-        positionX,
-        positionY
-      ]);
-      
-      const post = result.rows[0];
-      
-      // Invalidar cache de posts
-      await cache.invalidate(`posts:${upperPanelId}`);
-      
-      // Atualizar última atividade do painel
-      await db.query(
-        'UPDATE panels SET last_activity = CURRENT_TIMESTAMP WHERE id = $1',
-        [upperPanelId]
-      );
-      
-      // Notificar via WebSocket (será feito no servidor principal)
-      // Para isso, vamos armazenar o post no contexto da requisição
-      req.newPost = post;
-      req.panelId = upperPanelId;
-      
-      logger.info('Post criado com sucesso', {
-        postId: post.id,
-        panelId: upperPanelId,
-        authorId: req.body.author_id,
-        hasAuthorName: !!validData.author_name
-      });
-      
-      res.status(201).json(post);
-      
-    } catch (error) {
-      logger.error('Erro ao criar post:', error);
-      res.status(500).json({ 
-        error: 'Erro ao criar post' 
-      });
-    }
-  }
-);
-
-/**
  * PATCH /api/posts/:postId/position
  * Atualiza a posição de um post
  */
-router.patch('/:postId/position',
+router.patch('/:postId/position', authenticateToken,
   [
     param('postId')
       .isUUID()
@@ -195,9 +51,9 @@ router.patch('/:postId/position',
       const { postId } = req.params;
       const { position_x, position_y, panel_id } = req.body;
       
-      // Verificar se post existe
+      // Verificar se post existe e se pertence ao usuário ou está no painel correto
       const existingPost = await db.query(
-        'SELECT panel_id FROM posts WHERE id = $1',
+        'SELECT panel_id, author_user_id FROM posts WHERE id = $1',
         [postId]
       );
       
@@ -225,11 +81,7 @@ router.patch('/:postId/position',
       // Invalidar cache de posts
       await cache.invalidate(`posts:${panel_id.toUpperCase()}`);
       
-      // Armazenar para notificação WebSocket
-      req.movedPost = post;
-      req.panelId = panel_id.toUpperCase();
-      
-      logger.info('Posição do post atualizada', {
+      console.log('✅ Posição do post atualizada:', {
         postId,
         panelId: panel_id.toUpperCase(),
         newPosition: { x: position_x, y: position_y }
@@ -238,7 +90,7 @@ router.patch('/:postId/position',
       res.json(post);
       
     } catch (error) {
-      logger.error('Erro ao atualizar posição do post:', error);
+      console.error('❌ Erro ao atualizar posição do post:', error);
       res.status(500).json({ 
         error: 'Erro ao atualizar posição' 
       });
@@ -250,28 +102,25 @@ router.patch('/:postId/position',
  * DELETE /api/posts/:postId
  * Deleta um post
  */
-router.delete('/:postId',
+router.delete('/:postId', authenticateToken,
   [
     param('postId')
       .isUUID()
       .withMessage('ID do post inválido'),
     query('panel_id')
       .isLength({ min: 6, max: 6 })
-      .withMessage('ID do painel é obrigatório'),
-    query('author_id')
-      .optional()
-      .notEmpty()
-      .withMessage('ID do autor inválido')
+      .withMessage('ID do painel é obrigatório')
   ],
   handleValidationErrors,
   async (req, res) => {
     try {
       const { postId } = req.params;
-      const { panel_id, author_id } = req.query;
+      const { panel_id } = req.query;
+      const userId = req.user.userId;
       
       // Buscar post com informações de autorização
       const postResult = await db.query(
-        'SELECT author_id, panel_id FROM posts WHERE id = $1',
+        'SELECT author_user_id, panel_id FROM posts WHERE id = $1',
         [postId]
       );
       
@@ -292,8 +141,8 @@ router.delete('/:postId',
       
       // Verificar permissões de deleção
       const canDelete = 
-        post.author_id === author_id || // Autor do post
-        post.author_id === null; // Post anônimo
+        post.author_user_id === userId || // Autor do post
+        post.author_user_id === null; // Post anônimo (qualquer um pode deletar)
       
       if (!canDelete) {
         return res.status(403).json({
@@ -307,20 +156,16 @@ router.delete('/:postId',
       // Invalidar cache de posts
       await cache.invalidate(`posts:${panel_id.toUpperCase()}`);
       
-      // Armazenar para notificação WebSocket
-      req.deletedPostId = postId;
-      req.panelId = panel_id.toUpperCase();
-      
-      logger.info('Post deletado com sucesso', {
+      console.log('✅ Post deletado com sucesso:', {
         postId,
         panelId: panel_id.toUpperCase(),
-        authorId: post.author_id
+        authorId: post.author_user_id
       });
       
       res.status(204).send();
       
     } catch (error) {
-      logger.error('Erro ao deletar post:', error);
+      console.error('❌ Erro ao deletar post:', error);
       res.status(500).json({ 
         error: 'Erro ao deletar post' 
       });
@@ -332,7 +177,7 @@ router.delete('/:postId',
  * GET /api/posts/:postId
  * Busca um post específico
  */
-router.get('/:postId',
+router.get('/:postId', authenticateToken,
   [
     param('postId')
       .isUUID()
@@ -357,47 +202,12 @@ router.get('/:postId',
       res.json(result.rows[0]);
       
     } catch (error) {
-      logger.error('Erro ao buscar post:', error);
+      console.error('❌ Erro ao buscar post:', error);
       res.status(500).json({ 
         error: 'Erro ao buscar post' 
       });
     }
   }
 );
-
-/**
- * Middleware para notificações WebSocket
- * Este middleware deve ser usado depois das rotas para capturar os dados
- */
-router.use((req, res, next) => {
-  // Este middleware será chamado após o processamento das rotas
-  // Pode ser usado para enviar notificações WebSocket
-  
-  if (req.newPost && req.panelId) {
-    // Notificar criação de post via WebSocket
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`panel:${req.panelId}`).emit('new-post', req.newPost);
-    }
-  }
-  
-  if (req.movedPost && req.panelId) {
-    // Notificar movimento de post via WebSocket
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`panel:${req.panelId}`).emit('post-moved', req.movedPost);
-    }
-  }
-  
-  if (req.deletedPostId && req.panelId) {
-    // Notificar deleção de post via WebSocket
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`panel:${req.panelId}`).emit('post-deleted', { postId: req.deletedPostId });
-    }
-  }
-  
-  next();
-});
 
 module.exports = router;

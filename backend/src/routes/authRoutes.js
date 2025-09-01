@@ -30,6 +30,8 @@ const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
+  console.log('🔍 Token recebido:', token ? 'Presente' : 'Ausente');
+
   if (!token) {
     return res.status(401).json({ error: 'Token de acesso requerido' });
   }
@@ -233,6 +235,7 @@ router.post('/login',
       const { email, password } = req.body;
 
       // Buscar usuário
+      console.log('🔍 Buscando usuário no banco...');
       const result = await db.query(
         'SELECT id, first_name, last_name, email, password_hash, created_at FROM users WHERE email = $1',
         [email.toLowerCase()]
@@ -246,8 +249,10 @@ router.post('/login',
       }
 
       const user = result.rows[0];
+      console.log('✅ Usuário encontrado:', user.email);
 
       // Verificar senha
+      console.log('🔐 Verificando senha...');
       const isValidPassword = await bcrypt.compare(password, user.password_hash);
       if (!isValidPassword) {
         console.log('⚠️ Senha incorreta para:', email);
@@ -256,13 +261,18 @@ router.post('/login',
         });
       }
 
+      console.log('✅ Senha válida');
+
       // Gerar JWT
+      console.log('🎫 Gerando token JWT...');
+      const tokenPayload = { 
+        userId: user.id,
+        email: user.email,
+        name: `${user.first_name} ${user.last_name}`
+      };
+
       const token = jwt.sign(
-        { 
-          userId: user.id,
-          email: user.email,
-          name: `${user.first_name} ${user.last_name}`
-        },
+        tokenPayload,
         config.security.jwtSecret,
         { 
           expiresIn: '7d',
@@ -271,6 +281,7 @@ router.post('/login',
         }
       );
 
+      console.log('✅ Token gerado com sucesso');
       console.log('✅ Login realizado:', { 
         userId: user.id, 
         email: user.email 
@@ -288,7 +299,10 @@ router.post('/login',
       });
 
     } catch (error) {
-      console.error('❌ Erro no login:', error);
+      console.error('❌ Erro no login:', {
+        message: error.message,
+        stack: error.stack
+      });
       res.status(500).json({
         error: 'Erro interno do servidor'
       });

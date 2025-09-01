@@ -59,60 +59,32 @@ class SticklyNotesServer {
   }
 
   setupRoutes() {
-  // Health check DEVE vir primeiro
-  this.app.get('/api/health', async (req, res) => {
-    try {
-      await db.query('SELECT 1');
-      const redisStatus = cache ? await cache.get('test') !== undefined : false;
-      
-      res.json({ 
-        status: 'healthy', 
-        service: 'Stickly Notes Backend',
-        timestamp: new Date().toISOString(),
-        checks: {
-          postgres: true,
-          redis: redisStatus
-        }
-      });
-    } catch (error) {
-      logger.error('Health check failed:', error);
-      res.status(500).json({
-        status: 'unhealthy',
-        service: 'Stickly Notes Backend',
-        error: error.message
-      });
-    }
-  });
-
-  // Rota pública para verificar se painel requer senha (ANTES das rotas protegidas)
-  this.app.get('/api/panels/:code/check', async (req, res) => {
-    try {
-      const { code } = req.params;
-      const result = await db.query(
-        'SELECT password_hash IS NOT NULL as requires_password FROM panels WHERE id = $1',
-        [code.toUpperCase()]
-      );
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Painel não encontrado' });
+    // Health check DEVE vir primeiro
+    this.app.get('/api/health', async (req, res) => {
+      try {
+        await db.query('SELECT 1');
+        const redisStatus = cache ? await cache.get('test') !== undefined : false;
+        
+        res.json({ 
+          status: 'healthy', 
+          service: 'Stickly Notes Backend',
+          timestamp: new Date().toISOString(),
+          checks: {
+            postgres: true,
+            redis: redisStatus
+          }
+        });
+      } catch (error) {
+        logger.error('Health check failed:', error);
+        res.status(500).json({
+          status: 'unhealthy',
+          service: 'Stickly Notes Backend',
+          error: error.message
+        });
       }
-      
-      res.json({ requiresPassword: result.rows[0].requires_password });
-    } catch (error) {
-      logger.error('Erro ao verificar painel:', error);
-      res.status(500).json({ error: 'Erro interno' });
-    }
-  });
+    });
 
-  // Rotas de autenticação (públicas)
-  this.app.use('/api/auth', authRoutes);
-  
-  // Rotas protegidas (requerem autenticação)
-  this.app.use('/api/panels', authenticateToken, panelRoutes);
-  this.app.use('/api/posts', authenticateToken, postRoutes);
-  this.app.use('/api/users', authenticateToken, userRoutes);
-
-    // Rota pública para verificar se painel requer senha
+    // Rota pública para verificar se painel requer senha (ANTES das rotas protegidas)
     this.app.get('/api/panels/:code/check', async (req, res) => {
       try {
         const { code } = req.params;
@@ -131,6 +103,14 @@ class SticklyNotesServer {
         res.status(500).json({ error: 'Erro interno' });
       }
     });
+
+    // Rotas de autenticação (públicas)
+    this.app.use('/api/auth', authRoutes);
+    
+    // Rotas protegidas (requerem autenticação)
+    this.app.use('/api/panels', panelRoutes);
+    this.app.use('/api/posts', postRoutes);
+    this.app.use('/api/users', userRoutes);
 
     // Middleware para capturar rotas não encontradas
     this.app.use('*', (req, res) => {
