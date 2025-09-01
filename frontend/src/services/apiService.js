@@ -3,13 +3,22 @@ import { API_URL, ERROR_MESSAGES } from '../constants/config';
 class ApiService {
   constructor() {
     this.baseURL = API_URL;
+    this.authToken = null;
+  }
+
+  setAuthToken(token) {
+    this.authToken = token;
   }
 
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
     
     const config = {
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(this.authToken && { 'Authorization': `Bearer ${this.authToken}` }),
+        ...options.headers 
+      },
       ...options,
     };
 
@@ -25,9 +34,13 @@ class ApiService {
         } catch {
           switch (response.status) {
             case 400: errorMessage = 'Dados inválidos'; break;
-            case 401: errorMessage = ERROR_MESSAGES.WRONG_PASSWORD; break;
+            case 401: 
+              errorMessage = endpoint.includes('/auth/') ? 
+                ERROR_MESSAGES.INVALID_CREDENTIALS : 'Não autorizado'; 
+              break;
             case 403: errorMessage = ERROR_MESSAGES.PANEL_FULL; break;
             case 404: errorMessage = ERROR_MESSAGES.PANEL_NOT_FOUND; break;
+            case 409: errorMessage = ERROR_MESSAGES.EMAIL_IN_USE; break;
             case 429: errorMessage = 'Muitas tentativas. Aguarde.'; break;
             default: errorMessage = ERROR_MESSAGES.GENERIC_ERROR;
           }
@@ -74,6 +87,31 @@ class ApiService {
     const queryString = new URLSearchParams(params).toString();
     const url = queryString ? `${endpoint}?${queryString}` : endpoint;
     return this.request(url, { method: 'DELETE' });
+  }
+
+  // Métodos de autenticação
+  async register(userData) {
+    return this.post('/api/auth/register', userData);
+  }
+
+  async login(email, password) {
+    return this.post('/api/auth/login', { email, password });
+  }
+
+  async logout() {
+    return this.post('/api/auth/logout');
+  }
+
+  async getCurrentUser() {
+    return this.get('/api/auth/me');
+  }
+
+  async getMyPanels() {
+    return this.get('/api/auth/my-panels');
+  }
+
+  async leavePanel(panelId) {
+    return this.delete(`/api/panels/${panelId}/leave`);
   }
 
   // Métodos específicos da aplicação

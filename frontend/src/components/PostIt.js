@@ -72,7 +72,8 @@ export function PostIt({ post, onDelete, onMove, canDelete, currentUserId }) {
     }
   };
 
-  const canDeletePost = post.author_id === currentUserId || (!post.author_name && canDelete);
+  // Usuário pode deletar se é o autor do post ou se o post é anônimo
+  const canDeletePost = post.author_user_id === currentUserId || (!post.author_name && canDelete);
 
   return (
     <div
@@ -88,7 +89,7 @@ export function PostIt({ post, onDelete, onMove, canDelete, currentUserId }) {
       }}
     >
       {/* Fita adesiva */}
-      <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-16 h-6 bg-yellow-200 opacity-60 rotate-3"></div>
+      <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-16 h-6 bg-yellow-200 opacity-60 rotate-3 rounded-sm"></div>
       
       {/* Header do post */}
       <div 
@@ -108,16 +109,24 @@ export function PostIt({ post, onDelete, onMove, canDelete, currentUserId }) {
             onClick={() => onDelete(post.id)}
             className="p-1 hover:bg-black hover:bg-opacity-10 rounded transition-colors z-10"
             style={{ cursor: 'pointer' }}
+            title="Deletar nota"
           >
-            <span className="text-gray-600 text-lg">×</span>
+            <span className="text-gray-600 text-lg font-bold">×</span>
           </button>
         )}
       </div>
       
       {/* Conteúdo */}
-      <div className="text-gray-800 text-sm whitespace-pre-wrap break-words">
+      <div className="text-gray-800 text-sm whitespace-pre-wrap break-words leading-relaxed">
         {post.content}
       </div>
+
+      {/* Sombra de papel */}
+      <div className="absolute inset-0 rounded-lg pointer-events-none opacity-30" 
+           style={{
+             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(0,0,0,0.1)'
+           }} 
+      />
     </div>
   );
 }

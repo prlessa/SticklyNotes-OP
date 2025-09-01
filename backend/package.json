@@ -1,7 +1,7 @@
 {
   "name": "stickly-notes-backend",
-  "version": "2.1.0",
-  "description": "Backend para aplicação Stickly Notes",
+  "version": "3.0.0",
+  "description": "Backend para aplicação Stickly Notes com autenticação",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -10,7 +10,7 @@
     "docker:build": "docker build -t stickly-backend .",
     "docker:run": "docker run -p 3001:3001 stickly-backend"
   },
-  "keywords": ["sticky", "notes", "collaboration", "websocket"],
+  "keywords": ["sticky", "notes", "collaboration", "websocket", "authentication"],
   "author": "Stickly Team",
   "license": "MIT",
   "dependencies": {
@@ -25,6 +25,7 @@
     "pg": "^8.11.3",
     "uuid": "^9.0.1",
     "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
     "dotenv": "^16.3.1",
     "winston": "^3.10.0"
   },
@@ -36,4 +37,6 @@
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
   }
+
+  
 }

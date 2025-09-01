@@ -38,8 +38,8 @@ const config = {
 
   // Segurança
   security: {
-    jwtSecret: process.env.JWT_SECRET || 'meu-jwt-secret-super-seguro-para-desenvolvimento',
-    bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS) || 10 // Reduzido para performance em dev
+  jwtSecret: process.env.JWT_SECRET || 'meu-jwt-secret-super-seguro-para-desenvolvimento',
+  bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS) || 12 // Aumentado para produção
   },
 
   // Rate limiting

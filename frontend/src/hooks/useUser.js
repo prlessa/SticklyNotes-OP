@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { apiService } from '../services/apiService';
 
 const UserContext = createContext();
 
 export function UserProvider({ children }) {
-  const [userId, setUserId] = useState(null);
-  const [username, setUserNameState] = useState(null);
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -12,22 +13,29 @@ export function UserProvider({ children }) {
     loadUserData();
   }, []);
 
-  const loadUserData = () => {
+  const loadUserData = async () => {
     try {
       setIsLoading(true);
 
-      // Gerar ou recuperar userId
-      let storedUserId = localStorage.getItem('stickyNotesUserId');
-      if (!storedUserId) {
-        storedUserId = 'user_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-        localStorage.setItem('stickyNotesUserId', storedUserId);
+      // Recuperar token do localStorage
+      const storedToken = localStorage.getItem('sticklyNotesToken');
+      
+      if (storedToken) {
+        setToken(storedToken);
+        apiService.setAuthToken(storedToken);
+        
+        // Verificar se o token ainda é válido
+        try {
+          const userData = await apiService.getCurrentUser();
+          setUser(userData);
+        } catch (err) {
+          // Token inválido, remover
+          localStorage.removeItem('sticklyNotesToken');
+          setToken(null);
+          apiService.setAuthToken(null);
+        }
       }
 
-      // Recuperar username se existir
-      const storedUsername = localStorage.getItem('stickyNotesUserName');
-
-      setUserId(storedUserId);
-      setUserNameState(storedUsername);
       setError(null);
     } catch (err) {
       console.error('Erro ao carregar dados do usuário:', err);
@@ -37,47 +45,79 @@ export function UserProvider({ children }) {
     }
   };
 
-  const setUsername = (name) => {
+  const login = async (email, password) => {
     try {
-      if (!name || name.trim().length === 0) {
-        setError('Nome é obrigatório');
-        return false;
-      }
-
-      const trimmedName = name.trim();
-      if (trimmedName.length > 50) {
-        setError('Nome muito longo');
-        return false;
-      }
-
-      localStorage.setItem('stickyNotesUserName', trimmedName);
-      setUserNameState(trimmedName);
       setError(null);
-      return true;
+      const response = await apiService.login(email, password);
+      
+      const { token, user } = response;
+      
+      // Salvar token no localStorage
+      localStorage.setItem('sticklyNotesToken', token);
+      
+      // Configurar token no apiService
+      apiService.setAuthToken(token);
+      
+      setToken(token);
+      setUser(user);
+      
+      return response;
     } catch (err) {
-      setError('Erro ao salvar nome');
-      return false;
+      setError(err.message);
+      throw err;
     }
   };
 
-  const clearUser = () => {
+  const register = async (userData) => {
     try {
-      localStorage.removeItem('stickyNotesUserName');
-      setUserNameState(null);
       setError(null);
+      const response = await apiService.register(userData);
+      
+      const { token, user } = response;
+      
+      // Salvar token no localStorage
+      localStorage.setItem('sticklyNotesToken', token);
+      
+      // Configurar token no apiService
+      apiService.setAuthToken(token);
+      
+      setToken(token);
+      setUser(user);
+      
+      return response;
     } catch (err) {
-      console.error('Erro ao limpar usuário:', err);
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      // Fazer logout no servidor (opcional)
+      if (token) {
+        await apiService.logout();
+      }
+    } catch (err) {
+      console.error('Erro ao fazer logout:', err);
+    } finally {
+      // Limpar dados locais
+      localStorage.removeItem('sticklyNotesToken');
+      apiService.setAuthToken(null);
+      setToken(null);
+      setUser(null);
+      setError(null);
     }
   };
 
   const value = {
-    userId,
-    username,
-    isLoggedIn: !!username,
+    user,
+    token,
+    isAuthenticated: !!token && !!user,
     isLoading,
     error,
-    setUsername,
-    clearUser,
+    login,
+    register,
+    logout,
     setError
   };
 

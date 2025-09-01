@@ -10,6 +10,12 @@ const config = require('./config/config');
 const logger = require('./utils/logger');
 const { db, cache, connectDatabase, connectRedis } = require('./config/database');
 
+// Importar rotas
+const { router: authRoutes, authenticateToken } = require('./routes/authRoutes');
+const panelRoutes = require('./routes/panelRoutes');
+const postRoutes = require('./routes/postRoutes');
+const userRoutes = require('./routes/userRoutes');
+
 class SticklyNotesServer {
   constructor() {
     this.app = express();
@@ -38,6 +44,7 @@ class SticklyNotesServer {
     
     this.app.use(compression());
 
+    // Rate limiting geral
     const limiter = rateLimit({
       windowMs: 15 * 60 * 1000,
       max: 100,
@@ -46,19 +53,48 @@ class SticklyNotesServer {
     this.app.use(limiter);
 
     this.app.use(express.json({ limit: '1mb' }));
+    
+    // Logging de requisições
+    this.app.use(logger.httpMiddleware);
   }
 
   setupRoutes() {
     // Health check
-    this.app.get('/api/health', (req, res) => {
-      res.json({ 
-        status: 'healthy', 
-        service: 'Stickly Notes Backend',
-        timestamp: new Date().toISOString() 
-      });
+    this.app.get('/api/health', async (req, res) => {
+      try {
+        // Verificar conectividade dos bancos
+        await db.query('SELECT 1');
+        const redisStatus = cache ? await cache.client?.ping() : 'disconnected';
+        
+        res.json({ 
+          status: 'healthy', 
+          service: 'Stickly Notes Backend',
+          timestamp: new Date().toISOString(),
+          checks: {
+            postgres: true,
+            redis: redisStatus === 'PONG'
+          }
+        });
+      } catch (error) {
+        logger.error('Health check failed:', error);
+        res.status(500).json({
+          status: 'unhealthy',
+          service: 'Stickly Notes Backend',
+          timestamp: new Date().toISOString(),
+          error: error.message
+        });
+      }
     });
 
-    // Verificar se painel requer senha
+    // Rotas de autenticação
+    this.app.use('/api/auth', authRoutes);
+    
+    // Rotas protegidas (requerem autenticação)
+    this.app.use('/api/panels', authenticateToken, panelRoutes);
+    this.app.use('/api/posts', authenticateToken, postRoutes);
+    this.app.use('/api/users', authenticateToken, userRoutes);
+
+    // Rota pública para verificar se painel requer senha
     this.app.get('/api/panels/:code/check', async (req, res) => {
       try {
         const { code } = req.params;
@@ -78,112 +114,133 @@ class SticklyNotesServer {
       }
     });
 
-    // Criar painel
-    this.app.post('/api/panels', async (req, res) => {
-      try {
-        const panel = await this.createPanel(req.body);
-        res.status(201).json(panel);
-      } catch (error) {
-        logger.error('Erro ao criar painel:', error);
-        res.status(400).json({ error: error.message });
-      }
+    // Middleware para capturar rotas não encontradas
+    this.app.use('*', (req, res) => {
+      res.status(404).json({
+        error: 'Rota não encontrada',
+        path: req.originalUrl
+      });
     });
 
-    // Acessar painel
-    this.app.post('/api/panels/:code', async (req, res) => {
-      try {
-        const { code } = req.params;
-        const panel = await this.accessPanel(code.toUpperCase(), req.body);
-        res.json(panel);
-      } catch (error) {
-        logger.error('Erro ao acessar painel:', error);
-        res.status(400).json({ error: error.message });
-      }
-    });
+    // Middleware global de tratamento de erros
+    this.app.use((error, req, res, next) => {
+      logger.error('Erro não tratado:', {
+        error: error.message,
+        stack: error.stack,
+        method: req.method,
+        url: req.url
+      });
 
-    // Buscar posts do painel
-    this.app.get('/api/panels/:code/posts', async (req, res) => {
-      try {
-        const { code } = req.params;
-        const posts = await this.getPanelPosts(code.toUpperCase());
-        res.json(posts);
-      } catch (error) {
-        logger.error('Erro ao buscar posts:', error);
-        res.status(500).json({ error: 'Erro ao buscar posts' });
-      }
-    });
-
-    // Criar post
-    this.app.post('/api/panels/:code/posts', async (req, res) => {
-      try {
-        const { code } = req.params;
-        const post = await this.createPost(code.toUpperCase(), req.body);
-        
-        // Notificar via WebSocket
-        this.io.to(`panel:${code.toUpperCase()}`).emit('new-post', post);
-        
-        res.status(201).json(post);
-      } catch (error) {
-        logger.error('Erro ao criar post:', error);
-        res.status(400).json({ error: error.message });
-      }
-    });
-
-    // Atualizar posição do post
-    this.app.patch('/api/posts/:postId/position', async (req, res) => {
-      try {
-        const { postId } = req.params;
-        const post = await this.updatePostPosition(postId, req.body);
-        
-        // Notificar via WebSocket
-        this.io.to(`panel:${req.body.panel_id.toUpperCase()}`).emit('post-moved', post);
-        
-        res.json(post);
-      } catch (error) {
-        logger.error('Erro ao atualizar posição:', error);
-        res.status(400).json({ error: error.message });
-      }
-    });
-
-    // Deletar post
-    this.app.delete('/api/posts/:postId', async (req, res) => {
-      try {
-        const { postId } = req.params;
-        const { panel_id } = req.query;
-        
-        await this.deletePost(postId, { panel_id });
-        
-        // Notificar via WebSocket
-        this.io.to(`panel:${panel_id.toUpperCase()}`).emit('post-deleted', { postId });
-        
-        res.status(204).send();
-      } catch (error) {
-        logger.error('Erro ao deletar post:', error);
-        res.status(400).json({ error: error.message });
-      }
+      res.status(500).json({
+        error: 'Erro interno do servidor'
+      });
     });
   }
 
   setupWebSocket() {
     this.io.on('connection', (socket) => {
-      logger.info('Socket conectado:', socket.id);
+      logger.websocket('Socket conectado', { socketId: socket.id });
 
-      socket.on('join-panel', (panelId, userName, userId) => {
-        socket.join(`panel:${panelId}`);
-        socket.to(`panel:${panelId}`).emit('user-joined', { userName, userId });
-        logger.info(`Usuário ${userName} entrou no painel ${panelId}`);
+      // Join em um painel específico
+      socket.on('join-panel', async (panelId, userName, userId) => {
+        try {
+          socket.join(`panel:${panelId}`);
+          socket.panelId = panelId;
+          socket.userName = userName;
+          socket.userId = userId;
+
+          // Notificar outros usuários
+          socket.to(`panel:${panelId}`).emit('user-joined', { userName, userId });
+          
+          // Registrar usuário como ativo no banco
+          await db.query(`
+            INSERT INTO active_users (panel_id, user_id, username, user_uuid)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (panel_id, user_uuid)
+            DO UPDATE SET 
+              username = $3,
+              last_seen = CURRENT_TIMESTAMP
+          `, [panelId, `user_${userId}`, userName, userId]);
+
+          logger.websocket('Usuário entrou no painel', { 
+            panelId, 
+            userName, 
+            userId,
+            socketId: socket.id 
+          });
+        } catch (error) {
+          logger.error('Erro ao entrar no painel via WebSocket:', error);
+          socket.emit('error', { message: 'Erro ao entrar no painel' });
+        }
       });
 
-      socket.on('leave-panel', (panelId, userName, userId) => {
-        socket.leave(`panel:${panelId}`);
-        socket.to(`panel:${panelId}`).emit('user-left', { userName, userId });
-        logger.info(`Usuário ${userName} saiu do painel ${panelId}`);
+      // Leave de um painel
+      socket.on('leave-panel', async (panelId, userName, userId) => {
+        try {
+          socket.leave(`panel:${panelId}`);
+          socket.to(`panel:${panelId}`).emit('user-left', { userName, userId });
+          
+          // Remover usuário da lista de ativos
+          await db.query(
+            'DELETE FROM active_users WHERE panel_id = $1 AND user_uuid = $2',
+            [panelId, userId]
+          );
+
+          logger.websocket('Usuário saiu do painel', { 
+            panelId, 
+            userName, 
+            userId,
+            socketId: socket.id 
+          });
+        } catch (error) {
+          logger.error('Erro ao sair do painel via WebSocket:', error);
+        }
       });
 
-      socket.on('disconnect', () => {
-        logger.info('Socket desconectado:', socket.id);
+      // Disconnect
+      socket.on('disconnect', async () => {
+        try {
+          if (socket.panelId && socket.userId) {
+            // Notificar outros usuários
+            socket.to(`panel:${socket.panelId}`).emit('user-left', { 
+              userName: socket.userName, 
+              userId: socket.userId 
+            });
+
+            // Remover da lista de ativos
+            await db.query(
+              'DELETE FROM active_users WHERE panel_id = $1 AND user_uuid = $2',
+              [socket.panelId, socket.userId]
+            );
+          }
+
+          logger.websocket('Socket desconectado', { 
+            socketId: socket.id,
+            panelId: socket.panelId,
+            userId: socket.userId
+          });
+        } catch (error) {
+          logger.error('Erro no disconnect do WebSocket:', error);
+        }
+      });
+
+      // Heartbeat para manter conexão ativa
+      socket.on('heartbeat', async () => {
+        if (socket.panelId && socket.userId) {
+          try {
+            await db.query(
+              'UPDATE active_users SET last_seen = CURRENT_TIMESTAMP WHERE panel_id = $1 AND user_uuid = $2',
+              [socket.panelId, socket.userId]
+            );
+          } catch (error) {
+            logger.error('Erro no heartbeat:', error);
+          }
+        }
       });
     });
+
+    // Salvar referência do io para uso nas rotas
+    this.app.set('io', this.io);
   }
 
   async connectDatabases() {
@@ -197,157 +254,6 @@ class SticklyNotesServer {
     }
   }
 
-  // Métodos de negócio (implementação simplificada)
-  async createPanel(panelData) {
-    const bcrypt = require('bcryptjs');
-    const { name, type, password, creator, userId, borderColor, backgroundColor } = panelData;
-    
-    if (!name || !type || !creator || !userId) {
-      throw new Error('Dados obrigatórios não fornecidos');
-    }
-    
-    if (!['friends', 'couple'].includes(type)) {
-      throw new Error('Tipo de painel inválido');
-    }
-
-    const code = this.generatePanelCode();
-    const passwordHash = password ? await bcrypt.hash(password, 12) : null;
-    const maxUsers = type === 'couple' ? 2 : 15;
-    
-    const finalBorderColor = borderColor || (type === 'couple' ? '#FF9292' : '#9EC6F3');
-    const finalBackgroundColor = backgroundColor || (type === 'couple' ? '#FFE8E8' : '#FBFBFB');
-
-    const result = await db.query(`
-      INSERT INTO panels (
-        id, name, type, password_hash, creator, creator_id,
-        border_color, background_color, max_users
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id, name, type, creator, border_color, background_color, 
-                max_users, created_at, last_activity
-    `, [
-      code, name, type, passwordHash, creator, userId,
-      finalBorderColor, finalBackgroundColor, maxUsers
-    ]);
-
-    logger.info('Painel criado', { panelId: code, type, creator });
-    return result.rows[0];
-  }
-
-  async accessPanel(code, accessData) {
-    const bcrypt = require('bcryptjs');
-    const { password, userName, userId } = accessData;
-    
-    const result = await db.query(
-      'SELECT * FROM panels WHERE id = $1',
-      [code]
-    );
-    
-    if (result.rows.length === 0) {
-      throw new Error('Painel não encontrado');
-    }
-    
-    const panel = result.rows[0];
-    
-    if (panel.password_hash && password) {
-      const isValid = await bcrypt.compare(password, panel.password_hash);
-      if (!isValid) {
-        throw new Error('Senha incorreta');
-      }
-    } else if (panel.password_hash && !password) {
-      throw new Error('Senha é obrigatória');
-    }
-    
-    await db.query(
-      'UPDATE panels SET last_activity = CURRENT_TIMESTAMP WHERE id = $1',
-      [code]
-    );
-    
-    const safePanel = { ...panel };
-    delete safePanel.password_hash;
-    
-    return safePanel;
-  }
-
-  async getPanelPosts(panelId) {
-    const result = await db.query(
-      'SELECT * FROM posts WHERE panel_id = $1 ORDER BY created_at DESC',
-      [panelId]
-    );
-    return result.rows;
-  }
-
-  async createPost(panelId, postData) {
-    const { content, author_id, author_name, color, position_x, position_y } = postData;
-    
-    if (!content || !author_id) {
-      throw new Error('Conteúdo e autor são obrigatórios');
-    }
-    
-    const finalPositionX = position_x ?? Math.floor(Math.random() * 600) + 50;
-    const finalPositionY = position_y ?? Math.floor(Math.random() * 300) + 50;
-    const finalColor = color || '#A8D8EA';
-    
-    const result = await db.query(`
-      INSERT INTO posts (
-        panel_id, author_name, author_id, content, color, 
-        position_x, position_y
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING *
-    `, [
-      panelId, 
-      author_name || null,
-      author_id,
-      content,
-      finalColor,
-      finalPositionX,
-      finalPositionY
-    ]);
-    
-    await db.query(
-      'UPDATE panels SET last_activity = CURRENT_TIMESTAMP WHERE id = $1',
-      [panelId]
-    );
-    
-    return result.rows[0];
-  }
-
-  async updatePostPosition(postId, positionData) {
-    const { position_x, position_y } = positionData;
-    
-    const result = await db.query(
-      'UPDATE posts SET position_x = $1, position_y = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *',
-      [position_x, position_y, postId]
-    );
-    
-    if (result.rows.length === 0) {
-      throw new Error('Post não encontrado');
-    }
-    
-    return result.rows[0];
-  }
-
-  async deletePost(postId, params) {
-    const result = await db.query(
-      'DELETE FROM posts WHERE id = $1 RETURNING *',
-      [postId]
-    );
-    
-    if (result.rows.length === 0) {
-      throw new Error('Post não encontrado');
-    }
-    
-    return result.rows[0];
-  }
-
-  generatePanelCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return code;
-  }
-
   async start() {
     try {
       // Conectar bancos primeiro
@@ -358,12 +264,42 @@ class SticklyNotesServer {
       this.setupRoutes();
       this.setupWebSocket();
 
+      // Cleanup automático de usuários inativos a cada 5 minutos
+      setInterval(async () => {
+        try {
+          const result = await db.query(`
+            DELETE FROM active_users 
+            WHERE last_seen < NOW() - INTERVAL '10 minutes'
+            RETURNING panel_id, user_id
+          `);
+
+          if (result.rows.length > 0) {
+            logger.info(`Removidos ${result.rows.length} usuários inativos automaticamente`);
+            
+            // Notificar via WebSocket sobre usuários que saíram
+            result.rows.forEach(row => {
+              this.io.to(`panel:${row.panel_id}`).emit('user-left', { 
+                userId: row.user_id 
+              });
+            });
+          }
+        } catch (error) {
+          logger.error('Erro no cleanup automático:', error);
+        }
+      }, 5 * 60 * 1000); // 5 minutos
+
       // Iniciar servidor
       const port = config.server.port || 3001;
       this.httpServer.listen(port, '0.0.0.0', () => {
         logger.info(`🚀 Servidor rodando na porta ${port}`);
         logger.info(`📡 WebSocket habilitado`);
         logger.info(`💾 Bancos conectados`);
+        logger.info(`🔐 Autenticação JWT ativada`);
+        
+        if (config.server.nodeEnv === 'development') {
+          logger.info(`🌐 Frontend URL: ${config.frontendUrl}`);
+          logger.info(`🔍 Health check: http://localhost:${port}/api/health`);
+        }
       });
 
       // Graceful shutdown
@@ -378,10 +314,34 @@ class SticklyNotesServer {
 
   async shutdown() {
     logger.info('Iniciando shutdown graceful...');
-    this.httpServer.close(() => {
-      logger.info('Servidor HTTP fechado');
-      process.exit(0);
+    
+    // Fechar conexões WebSocket
+    this.io.close();
+    
+    // Fechar servidor HTTP
+    this.httpServer.close(async () => {
+      try {
+        // Fechar conexões de banco
+        if (db && db.close) {
+          await db.close();
+        }
+        if (cache && cache.close) {
+          await cache.close();
+        }
+        
+        logger.info('Servidor fechado graciosamente');
+        process.exit(0);
+      } catch (error) {
+        logger.error('Erro durante shutdown:', error);
+        process.exit(1);
+      }
     });
+
+    // Forçar fechamento após 10 segundos
+    setTimeout(() => {
+      logger.error('Forçando fechamento do servidor...');
+      process.exit(1);
+    }, 10000);
   }
 }
 
