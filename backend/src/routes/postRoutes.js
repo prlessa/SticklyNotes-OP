@@ -81,6 +81,12 @@ router.patch('/:postId/position', authenticateToken,
       // Invalidar cache de posts
       await cache.invalidate(`posts:${panel_id.toUpperCase()}`);
       
+      // Emitir via WebSocket
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`panel:${panel_id.toUpperCase()}`).emit('post-moved', post);
+      }
+      
       console.log('✅ Posição do post atualizada:', {
         postId,
         panelId: panel_id.toUpperCase(),
@@ -155,6 +161,15 @@ router.delete('/:postId', authenticateToken,
       
       // Invalidar cache de posts
       await cache.invalidate(`posts:${panel_id.toUpperCase()}`);
+      
+      // Emitir via WebSocket
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`panel:${panel_id.toUpperCase()}`).emit('post-deleted', { 
+          postId, 
+          panel_id: panel_id.toUpperCase() 
+        });
+      }
       
       console.log('✅ Post deletado com sucesso:', {
         postId,

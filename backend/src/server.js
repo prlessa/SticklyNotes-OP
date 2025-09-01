@@ -138,6 +138,20 @@ class SticklyNotesServer {
   setupWebSocket() {
     this.io.on('connection', (socket) => {
       logger.websocket('Socket conectado', { socketId: socket.id });
+      socket.on('new-post-created', (postData) => {
+      // Retransmitir novo post para todos no painel
+      socket.to(`panel:${postData.panel_id}`).emit('new-post', postData);
+});
+
+socket.on('post-position-updated', (postData) => {
+  // Retransmitir movimento para todos no painel
+  socket.to(`panel:${postData.panel_id}`).emit('post-moved', postData);
+});
+
+socket.on('post-deleted', (data) => {
+  // Retransmitir deleção para todos no painel
+  socket.to(`panel:${data.panel_id}`).emit('post-deleted', data);
+});
 
       // Join em um painel específico
       socket.on('join-panel', async (panelId, userName, userId) => {

@@ -98,7 +98,11 @@ router.post('/:code/posts', authenticateToken,
     body('position_y')
       .optional()
       .isInt({ min: 0, max: 2000 })
-      .withMessage('Posição Y inválida')
+      .withMessage('Posição Y inválida'),
+    body('anonymous')
+      .optional()
+      .isBoolean()
+      .withMessage('Anonymous deve ser boolean')
   ],
   handleValidationErrors,
   async (req, res) => {
@@ -177,6 +181,12 @@ router.post('/:code/posts', authenticateToken,
         'UPDATE panels SET last_activity = CURRENT_TIMESTAMP WHERE id = $1',
         [upperCode]
       );
+      
+      // Emitir via WebSocket para todos no painel
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`panel:${upperCode}`).emit('new-post', post);
+      }
       
       console.log('✅ Post criado com sucesso:', {
         postId: post.id,

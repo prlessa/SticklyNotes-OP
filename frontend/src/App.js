@@ -65,7 +65,6 @@ const Modal = ({ isOpen, onClose, title, children, size = 'medium' }) => {
     </div>
   );
 };
-
 // Componente de Formulário de Post Atualizado
 const NewPostForm = ({ onSubmit, onCancel, colors, userName }) => {
   const [content, setContent] = useState('');
@@ -107,24 +106,25 @@ const NewPostForm = ({ onSubmit, onCancel, colors, userName }) => {
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={anonymous}
-              onChange={(e) => setAnonymous(e.target.checked)}
-              className="mr-2"
-            />
-            <span className="text-sm text-gray-700">Postar anonimamente</span>
-          </label>
-        </div>
-
-        {!anonymous && (
-          <div className="bg-gray-50 rounded-lg p-3">
-            <span className="text-sm text-gray-600">Postando como: </span>
-            <span className="font-medium text-gray-800">{userName}</span>
+        <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+          <div className="flex items-center">
+            <User className="w-5 h-5 text-gray-600 mr-2" />
+            <span className="text-sm font-medium text-gray-700">
+              {anonymous ? 'Anônimo' : userName}
+            </span>
           </div>
-        )}
+          <button
+            type="button"
+            onClick={() => setAnonymous(!anonymous)}
+            className={`w-12 h-6 rounded-full transition-colors ${
+              anonymous ? 'bg-gray-400' : 'bg-blue-600'
+            }`}
+          >
+            <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${
+              anonymous ? 'translate-x-0.5' : 'translate-x-6'
+            }`} />
+          </button>
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -447,8 +447,13 @@ const CreatePanelScreen = ({ panelType, onBack, user }) => {
   }, [formData, panelType]);
 
   if (currentPanel) {
-    return <PanelScreen panel={currentPanel} />;
-  }
+  return (
+    <PanelScreen 
+      panel={currentPanel} 
+      onBackToHome={onBack}  // ← CORRIGIDO
+    />
+  );
+}
 
   const getGradient = () => {
     switch (panelType) {
@@ -642,8 +647,13 @@ const JoinPanelScreen = ({ onBack, user }) => {
   }, [formData, requiresPassword]);
 
   if (currentPanel) {
-    return <PanelScreen panel={currentPanel} />;
-  }
+  return (
+    <PanelScreen 
+      panel={currentPanel} 
+      onBackToHome={onBack}
+    />
+  );
+}
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-100 to-emerald-100 flex items-center justify-center p-4">
@@ -813,13 +823,16 @@ const HomeScreen = () => {
 
   // Tela de criação de painel
   if (currentScreen === 'create' && panelType) {
-    return (
-      <CreatePanelScreen 
-        panelType={panelType} 
-        onBack={() => setPanelType('')}
-        user={user}
-      />
-    );
+  return (
+  <CreatePanelScreen 
+    panelType={panelType} 
+    onBack={() => {
+      setPanelType('');
+      setCurrentScreen('home');
+    }}
+    user={user}
+  />
+);
   }
 
   // Tela de acesso a painel
@@ -864,7 +877,11 @@ const HomeScreen = () => {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {myPanels.map(panel => (
-                <PanelCard key={panel.id} panel={panel} />
+                <PanelCard 
+                  key={panel.id} 
+                  panel={panel} 
+                  onBackToHome={() => setCurrentScreen('home')}
+                  />
               ))}
             </div>
           )}
@@ -945,7 +962,7 @@ const HomeScreen = () => {
 };
 
 // Componente do Painel (Tela principal do mural) - Atualizado com visual de mural
-const PanelScreen = ({ panel }) => {
+const PanelScreen = ({ panel, onBackToHome }) => {
   const { user, logout } = useUser();
   const [posts, setPosts] = useState([]);
   const [activeUsers, setActiveUsers] = useState([]);
@@ -1064,12 +1081,15 @@ const PanelScreen = ({ panel }) => {
   const handleLeavePanel = useCallback(async () => {
     try {
       await apiService.leavePanel(panel.id);
-      // Redirecionar para a tela principal
-      window.location.reload();
+      if (onBackToHome) {
+        onBackToHome();
+      } else {
+        window.location.reload();
+      }
     } catch (err) {
       setError(err.message);
     }
-  }, [panel.id]);
+  }, [panel.id, onBackToHome]);
 
   if (isLoading) {
     return <LoadingSpinner message="Carregando mural..." />;
@@ -1131,6 +1151,15 @@ const PanelScreen = ({ panel }) => {
               >
                 <Plus className="w-4 h-4" />
                 Nova Nota
+              </button>
+
+              <button
+                onClick={onBackToHome}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-100 transition-colors text-sm text-blue-600"
+                style={{ backgroundColor: panel.background_color }}
+              >
+                <Home className="w-4 h-4" />
+                Início
               </button>
 
               <button

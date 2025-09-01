@@ -133,7 +133,17 @@ class ApiService {
   }
 
   async createPost(panelId, postData) {
-    return this.post(`/api/panels/${panelId}/posts`, postData);
+    // Se anonymous for true, não enviar author_name
+    // Se anonymous for false, o backend usará os dados do usuário logado
+    const payload = {
+      content: postData.content,
+      color: postData.color,
+      anonymous: postData.anonymous || false,
+      position_x: postData.position_x,
+      position_y: postData.position_y
+    };
+
+    return this.post(`/api/panels/${panelId}/posts`, payload);
   }
 
   async updatePostPosition(postId, positionData) {
