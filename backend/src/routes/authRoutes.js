@@ -354,21 +354,7 @@ router.get('/my-panels', authenticateToken, async (req, res) => {
   try {
     console.log('🔍 Buscando painéis para usuário:', req.user.userId);
 
-    // Primeiro, buscar painéis onde o usuário é criador
-    const createdPanels = await db.query(`
-      SELECT 
-        p.id, p.name, p.type, p.background_color, 
-        p.created_at, p.last_activity,
-        p.created_at as last_access,
-        (SELECT COUNT(*)::INTEGER FROM posts WHERE panel_id = p.id) as post_count,
-        (SELECT COUNT(*)::INTEGER FROM active_users WHERE panel_id = p.id AND last_seen > NOW() - INTERVAL '10 minutes') as active_users
-      FROM panels p
-      WHERE p.creator_user_id = $1
-    `, [req.user.userId]);
-
-    console.log('📋 Painéis criados encontrados:', createdPanels.rows.length);
-
-    // Depois, buscar painéis onde o usuário participa
+    // APENAS painéis onde o usuário AINDA É PARTICIPANTE
     const participantPanels = await db.query(`
       SELECT DISTINCT
         p.id, p.name, p.type, p.background_color, 
@@ -378,27 +364,18 @@ router.get('/my-panels', authenticateToken, async (req, res) => {
         (SELECT COUNT(*)::INTEGER FROM active_users WHERE panel_id = p.id AND last_seen > NOW() - INTERVAL '10 minutes') as active_users
       FROM panels p
       INNER JOIN panel_participants pp ON p.id = pp.panel_id
-      WHERE pp.user_uuid = $1 AND p.creator_user_id != $1
+      WHERE pp.user_uuid = $1
+      ORDER BY pp.last_access DESC, p.created_at DESC
     `, [req.user.userId]);
 
-    console.log('👥 Painéis participante encontrados:', participantPanels.rows.length);
+    console.log('📋 Painéis encontrados:', participantPanels.rows.length);
 
-    // Combinar e remover duplicatas
-    const allPanels = [...createdPanels.rows, ...participantPanels.rows];
-    const uniquePanels = allPanels.filter((panel, index, self) => 
-      index === self.findIndex(p => p.id === panel.id)
-    );
-
-    // Ordenar por última atividade
-    uniquePanels.sort((a, b) => {
-      const dateA = new Date(a.last_access || a.created_at);
-      const dateB = new Date(b.last_access || b.created_at);
-      return dateB - dateA;
+    // Log para debug
+    participantPanels.rows.forEach(panel => {
+      console.log(`   - ${panel.id}: ${panel.name} (${panel.type})`);
     });
 
-    console.log('✅ Total de painéis únicos:', uniquePanels.length);
-
-    res.json(uniquePanels);
+    res.json(participantPanels.rows);
 
   } catch (error) {
     console.error('❌ Erro detalhado ao buscar painéis:', {

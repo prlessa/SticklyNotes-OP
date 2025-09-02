@@ -111,8 +111,9 @@ class ApiService {
   }
 
   async leavePanel(panelId) {
-    return this.delete(`/api/panels/${panelId}/leave`);
-  }
+  console.log('📡 API: Saindo do painel', panelId);
+  return this.delete(`/api/panels/${panelId}/leave`);
+}
 
   // Métodos específicos da aplicação
   async checkPanelRequiresPassword(code) {

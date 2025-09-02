@@ -446,7 +446,7 @@ router.post('/:code', authenticateToken,
 
 /**
  * DELETE /api/panels/:code/leave
- * Sair de um painel
+ * Sair de um painel (remove COMPLETAMENTE o usuário)
  */
 router.delete('/:code/leave', authenticateToken,
   [
@@ -462,26 +462,44 @@ router.delete('/:code/leave', authenticateToken,
       const userId = req.user.userId;
       const upperCode = code.toUpperCase();
       
-      // Usar transação para remover de ambas as tabelas
+      console.log(`🚪 Usuário ${userId} saindo do painel ${upperCode}`);
+      
+      // Usar transação para remover de TODAS as tabelas relacionadas
       await db.transaction(async (client) => {
-        // Remover da tabela de participantes
-        await client.query(
-          'DELETE FROM panel_participants WHERE panel_id = $1 AND user_uuid = $2',
+        // 1. Remover da tabela de participantes (histórico permanente)
+        const participantResult = await client.query(
+          'DELETE FROM panel_participants WHERE panel_id = $1 AND user_uuid = $2 RETURNING *',
           [upperCode, userId]
+        );
+        console.log(`   Removido de panel_participants: ${participantResult.rows.length} registros`);
+        
+        // 2. Remover da tabela de usuários ativos (sessão atual)
+        const activeResult = await client.query(
+          'DELETE FROM active_users WHERE panel_id = $1 AND user_uuid = $2 RETURNING *',
+          [upperCode, userId]
+        );
+        console.log(`   Removido de active_users: ${activeResult.rows.length} registros`);
+        
+        // 3. Verificar se o usuário era o criador (não permitir sair se for o único)
+        const panelResult = await client.query(
+          'SELECT creator_user_id, (SELECT COUNT(*) FROM panel_participants WHERE panel_id = $1) as participant_count FROM panels WHERE id = $1',
+          [upperCode]
         );
         
-        // Remover da tabela de usuários ativos
-        await client.query(
-          'DELETE FROM active_users WHERE panel_id = $1 AND user_uuid = $2',
-          [upperCode, userId]
-        );
+        if (panelResult.rows.length > 0) {
+          const panel = panelResult.rows[0];
+          console.log(`   Painel tem ${panel.participant_count} participantes restantes`);
+          
+          // Se era o criador e não há mais participantes, pode deletar o painel
+          if (panel.creator_user_id === userId && panel.participant_count === 0) {
+            console.log(`   Criador saiu e não há mais participantes, mantendo painel órfão`);
+            // Opcionalmente, você pode deletar o painel aqui se desejar
+            // await client.query('DELETE FROM panels WHERE id = $1', [upperCode]);
+          }
+        }
       });
       
-      console.log('✅ Usuário saiu do painel:', {
-        panelId: upperCode,
-        userId
-      });
-      
+      console.log(`✅ Usuário ${userId} removido completamente do painel ${upperCode}`);
       res.status(204).send();
       
     } catch (error) {

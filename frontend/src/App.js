@@ -1088,13 +1088,17 @@ const PanelScreen = ({ panel, onBackToHome }) => {
 
   const handleLeavePanel = useCallback(async () => {
   try {
+    console.log('🚪 Saindo do painel:', panel.id);
     await apiService.leavePanel(panel.id);
+    console.log('✅ Saída realizada com sucesso');
+    
     if (onBackToHome) {
       onBackToHome();
     } else {
       window.location.reload();
     }
   } catch (err) {
+    console.error('❌ Erro ao sair do painel:', err);
     setError(err.message);
   }
 }, [panel.id, onBackToHome]);
