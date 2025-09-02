@@ -6,8 +6,8 @@ COPY frontend/package*.json ./
 RUN npm ci --only=production
 
 COPY frontend/ ./
-ARG REACT_APP_API_URL
-ENV REACT_APP_API_URL=$REACT_APP_API_URL
+ENV NODE_ENV=production
+ENV REACT_APP_API_URL=""
 RUN npm run build
 
 # Build final
@@ -17,14 +17,14 @@ RUN apk add --no-cache curl
 
 WORKDIR /app
 
-# Backend dependencies
+# Backend dependencies first
 COPY backend/package*.json ./
 RUN npm ci --only=production
 
 # Copy backend source
 COPY backend/src ./src
 
-# Copy frontend build
+# Copy frontend build to public folder
 COPY --from=frontend-builder /app/frontend/build ./public
 
 # Create logs directory and set permissions
@@ -36,8 +36,9 @@ USER nodejs
 
 EXPOSE 3001
 
-# Healthcheck mais tolerante
+# Healthcheck
 HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=5 \
   CMD curl -f http://localhost:3001/api/health || exit 1
 
+# Comando de inicialização correto
 CMD ["node", "src/server.js"]
