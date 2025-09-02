@@ -346,13 +346,7 @@ const AuthScreen = () => {
 };
 
 // Card de Painel para "Meus Murais"
-const PanelCard = ({ panel }) => {
-  const [currentPanel, setCurrentPanel] = useState(null);
-  
-  if (currentPanel) {
-    return <PanelScreen panel={currentPanel} />;
-  }
-
+const PanelCard = ({ panel, onSelectPanel }) => {
   const getTypeIcon = (type) => {
     switch (type) {
       case 'couple': return <Heart className="w-5 h-5 text-rose-500" />;
@@ -379,7 +373,7 @@ const PanelCard = ({ panel }) => {
 
   return (
     <button
-      onClick={() => setCurrentPanel(panel)}
+      onClick={() => onSelectPanel(panel)}
       className={`p-4 rounded-xl border-2 ${getTypeColor(panel.type)} hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1 text-left w-full`}
     >
       <div className="flex items-start justify-between mb-3">
@@ -734,7 +728,7 @@ const HomeScreen = () => {
   const [panelType, setPanelType] = useState('');
   const [myPanels, setMyPanels] = useState([]);
   const [loadingPanels, setLoadingPanels] = useState(false);
-
+  const [selectedPanel, setSelectedPanel] = useState(null);
   // Carregar painéis do usuário
   useEffect(() => {
     const loadMyPanels = async () => {
@@ -845,50 +839,64 @@ const HomeScreen = () => {
     );
   }
 
-  // Tela dos meus painéis
-  if (currentScreen === 'my-panels') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-50 to-pink-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-4xl w-full border border-gray-100">
-          <button
-            onClick={() => setCurrentScreen('home')}
-            className="mb-6 text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-2 text-sm"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Voltar
-          </button>
 
-          <div className="flex items-center justify-center mb-8">
-            <StickyNote className="w-12 h-12 text-slate-600 mr-3" />
-            <h1 className="text-4xl font-bold text-gray-800">Meus Murais</h1>
-          </div>
+// Se um painel foi selecionado, abrir o PanelScreen
+if (selectedPanel) {
+  return (
+    <PanelScreen 
+      panel={selectedPanel} 
+      onBackToHome={() => {
+        setSelectedPanel(null);
+        setCurrentScreen('home');
+      }}
+    />
+  );
+}
 
-          {loadingPanels ? (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Carregando murais...</p>
-            </div>
-          ) : myPanels.length === 0 ? (
-            <div className="text-center py-12">
-              <StickyNote className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <p className="text-lg text-gray-600 mb-2">Você ainda não participa de nenhum mural</p>
-              <p className="text-gray-500">Crie um novo mural ou acesse um existente!</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {myPanels.map(panel => (
-                <PanelCard 
-                  key={panel.id} 
-                  panel={panel} 
-                  onBackToHome={() => setCurrentScreen('home')}
-                  />
-              ))}
-            </div>
-          )}
+// Tela dos meus painéis
+if (currentScreen === 'my-panels') {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-50 to-pink-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-4xl w-full border border-gray-100">
+        <button
+          onClick={() => setCurrentScreen('home')}
+          className="mb-6 text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-2 text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Voltar
+        </button>
+
+        <div className="flex items-center justify-center mb-8">
+          <StickyNote className="w-12 h-12 text-slate-600 mr-3" />
+          <h1 className="text-4xl font-bold text-gray-800">Meus Murais</h1>
         </div>
+
+        {loadingPanels ? (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Carregando murais...</p>
+          </div>
+        ) : myPanels.length === 0 ? (
+          <div className="text-center py-12">
+            <StickyNote className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+            <p className="text-lg text-gray-600 mb-2">Você ainda não participa de nenhum mural</p>
+            <p className="text-gray-500">Crie um novo mural ou acesse um existente!</p>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {myPanels.map(panel => (
+              <PanelCard 
+                key={panel.id} 
+                panel={panel} 
+                onSelectPanel={setSelectedPanel}
+              />
+            ))}
+          </div>
+        )}
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   // Tela principal
   return (
@@ -1079,17 +1087,17 @@ const PanelScreen = ({ panel, onBackToHome }) => {
   }, [panel.id]);
 
   const handleLeavePanel = useCallback(async () => {
-    try {
-      await apiService.leavePanel(panel.id);
-      if (onBackToHome) {
-        onBackToHome();
-      } else {
-        window.location.reload();
-      }
-    } catch (err) {
-      setError(err.message);
+  try {
+    await apiService.leavePanel(panel.id);
+    if (onBackToHome) {
+      onBackToHome();
+    } else {
+      window.location.reload();
     }
-  }, [panel.id, onBackToHome]);
+  } catch (err) {
+    setError(err.message);
+  }
+}, [panel.id, onBackToHome]);
 
   if (isLoading) {
     return <LoadingSpinner message="Carregando mural..." />;
