@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Deploy automático para Railway
-# Este script configura tudo automaticamente
+# Deploy automático para Railway - VERSÃO CORRIGIDA
+# Este script resolve os problemas de conexão com bancos de dados
 
 set -e  # Para na primeira falha
 
-echo "🚀 Deploy Automático Stickly Notes no Railway"
-echo "=============================================="
+echo "🚀 Deploy Stickly Notes no Railway - VERSÃO CORRIGIDA"
+echo "===================================================="
 
 # Função para gerar JWT secret
 generate_jwt_secret() {
@@ -14,7 +14,7 @@ generate_jwt_secret() {
     openssl rand -base64 32
   else
     # Fallback se não tiver openssl
-    date +%s | sha256sum | base64 | head -c 32
+    date +%s | sha256sum | base64 | head -c 32 | echo
   fi
 }
 
@@ -46,7 +46,7 @@ if ! command -v railway &> /dev/null; then
   npm install -g @railway/cli
 fi
 
-# Login no Railway (vai abrir o browser)
+# Login no Railway
 echo "🔐 Fazendo login no Railway..."
 railway login || {
   echo "❌ Falha no login. Tentando método alternativo..."
@@ -66,79 +66,95 @@ fi
 # Criar projeto no Railway
 echo "🏗️ Criando projeto no Railway..."
 PROJECT_NAME="stickly-notes-$(date +%s)"
-railway init --name "$PROJECT_NAME" || {
-  echo "⚠️ Projeto pode já existir, continuando..."
-}
+railway init --name "$PROJECT_NAME" || echo "⚠️ Projeto pode já existir, continuando..."
 
 # Aguardar um pouco para Railway processar
-sleep 2
+sleep 3
 
 # Adicionar PostgreSQL
 echo "🗄️ Adicionando PostgreSQL..."
 railway add --database postgresql || echo "PostgreSQL pode já existir"
 
-# Adicionar Redis  
-echo "⚡ Adicionando Redis..."
+# Adicionar Redis
+echo "⚡ Adicionando Redis..."  
 railway add --database redis || echo "Redis pode já existir"
 
 # Aguardar bancos serem provisionados
-echo "⏳ Aguardando bancos serem provisionados (30s)..."
-sleep 30
+echo "⏳ Aguardando bancos serem provisionados (45s)..."
+sleep 45
 
-# Gerar e configurar variáveis de ambiente
-echo "🔧 Configurando variáveis de ambiente..."
-
+# Gerar JWT secret
 JWT_SECRET=$(generate_jwt_secret)
 
-# Configurar todas as variáveis necessárias
+# Configurar variáveis de ambiente CORRETAS para Railway
+echo "🔧 Configurando variáveis de ambiente para Railway..."
+
 railway variables set NODE_ENV=production
-railway variables set JWT_SECRET="$JWT_SECRET"
+railway variables set JWT_SECRET="$JWT_SECRET" 
 railway variables set BCRYPT_ROUNDS=12
 railway variables set LOG_LEVEL=info
 railway variables set PORT=3001
 
-# Variáveis específicas para o Railway
-railway variables set FRONTEND_URL="https://$PROJECT_NAME.up.railway.app"
+# ⚠️ IMPORTANTE: Não definir DATABASE_URL e REDIS_URL manualmente
+# O Railway define essas variáveis automaticamente quando você adiciona os serviços
+echo "📍 IMPORTANTE: DATABASE_URL e REDIS_URL serão definidas automaticamente pelo Railway"
 
-echo "✅ Variáveis configuradas:"
+# Aguardar variáveis serem aplicadas
+echo "⏳ Aguardando variáveis serem aplicadas..."
+sleep 15
+
+# Verificar se as variáveis de banco foram criadas pelo Railway
+echo "🔍 Verificando variáveis do Railway..."
+railway variables || echo "Não foi possível listar variáveis"
+
+echo "✅ Variáveis configuradas manualmente:"
 echo "  - NODE_ENV=production"
 echo "  - JWT_SECRET=***"
-echo "  - BCRYPT_ROUNDS=12" 
-echo "  - LOG_LEVEL=info"
+echo "  - BCRYPT_ROUNDS=12"
+echo "  - LOG_LEVEL=info" 
 echo "  - PORT=3001"
-
-# Aguardar mais um pouco para as variáveis serem aplicadas
-echo "⏳ Aguardando variáveis serem aplicadas..."
-sleep 10
+echo ""
+echo "🔗 Variáveis automáticas do Railway (devem estar presentes):"
+echo "  - DATABASE_URL (PostgreSQL)"
+echo "  - REDIS_URL (Redis)"
 
 # Fazer deploy
 echo "🚀 Fazendo deploy..."
 railway up --detach
 
 # Aguardar deploy completar
-echo "⏳ Aguardando deploy completar..."
-sleep 60
+echo "⏳ Aguardando deploy completar (90s)..."
+sleep 90
 
 # Verificar status
 echo "📊 Verificando status do deploy..."
 railway status
 
 # Obter URL do projeto
-URL=$(railway url 2>/dev/null || echo "Disponível no dashboard do Railway")
+URL=$(railway url 2>/dev/null || echo "https://$PROJECT_NAME.up.railway.app")
+
+# Verificar se a aplicação está funcionando
+echo "🔍 Testando aplicação..."
+if curl -f -s "$URL/api/health" > /dev/null 2>&1; then
+  echo "✅ Aplicação está respondendo corretamente!"
+else
+  echo "⚠️ Aplicação pode ainda estar inicializando..."
+  echo "   Verifique os logs com: railway logs"
+fi
 
 # Salvar informações do deploy
 cat > railway-deploy-info.txt << EOF
-🎉 Deploy Completo - Stickly Notes
-================================
+🎉 Deploy Railway Completo - Stickly Notes
+=========================================
 
 Projeto: $PROJECT_NAME
 URL: $URL
 Dashboard: https://railway.app/dashboard
 
 Serviços provisionados:
-- ✅ Aplicação Web (Node.js/React)
-- ✅ PostgreSQL Database  
-- ✅ Redis Cache
+- ✅ Aplicação Web (Node.js + React integrado)
+- ✅ PostgreSQL Database (URL automática)
+- ✅ Redis Cache (URL automática)
 
 Variáveis configuradas:
 - NODE_ENV=production
@@ -146,41 +162,48 @@ Variáveis configuradas:
 - BCRYPT_ROUNDS=12
 - LOG_LEVEL=info
 - PORT=3001
-- DATABASE_URL=(configurado automaticamente pelo Railway)
-- REDIS_URL=(configurado automaticamente pelo Railway)
+- DATABASE_URL=(Railway automático)
+- REDIS_URL=(Railway automático)
+- FRONTEND_URL=(Railway automático)
 
 Deploy realizado em: $(date)
 
-Para verificar logs:
-  railway logs
+Comandos úteis:
+  railway logs          # Ver logs em tempo real
+  railway up            # Fazer redeploy  
+  railway open          # Abrir no navegador
+  railway variables     # Ver todas as variáveis
+  railway status        # Status dos serviços
 
-Para fazer redeploy:
-  railway up
+Health check: $URL/api/health
+Frontend: $URL
+API: $URL/api
 
-Para abrir no navegador:
-  railway open
+IMPORTANTE:
+- Se der erro de conexão, aguarde alguns minutos
+- Verifique logs com 'railway logs'
+- DATABASE_URL e REDIS_URL são criadas automaticamente pelo Railway
 EOF
 
 echo ""
-echo "🎉 Deploy automático concluído!"
-echo "================================"
-echo "📊 Projeto: $PROJECT_NAME"
+echo "🎉 Deploy Railway concluído!"
+echo "============================"
+echo "📊 Projeto: $PROJECT_NAME" 
 echo "🌐 URL: $URL"
 echo "📄 Detalhes salvos em: railway-deploy-info.txt"
 echo ""
-echo "⏳ O aplicativo pode levar alguns minutos para ficar disponível."
-echo "📊 Monitore o status com: railway logs"
-echo "🌐 Acesse o dashboard: https://railway.app/dashboard"
+echo "⏳ A aplicação pode levar alguns minutos para ficar totalmente disponível."
+echo "📊 Monitore com: railway logs"
+echo "🌐 Dashboard: https://railway.app/dashboard"
 echo ""
 echo "🔍 Para verificar se está funcionando:"
 echo "   curl $URL/api/health"
 echo ""
 
-# Abrir no navegador (opcional)
-read -p "Abrir projeto no navegador? (y/n): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-  railway open 2>/dev/null || echo "Abra manualmente: https://railway.app/dashboard"
-fi
+# Mostrar logs em tempo real por alguns segundos
+echo "📊 Logs em tempo real (10s):"
+timeout 10s railway logs --tail || echo "Timeout nos logs, continue monitorando com 'railway logs'"
 
+echo ""
 echo "✅ Script concluído com sucesso!"
+echo "🚨 Se houver erro de conexão, aguarde alguns minutos e verifique os logs."

@@ -1,44 +1,59 @@
-# Build frontend
+# Dockerfile principal para Railway - Build completo (backend + frontend)
 FROM node:18-alpine as frontend-builder
 
+# Instalar dependências do sistema para Alpine
+RUN apk add --no-cache curl git
+
 WORKDIR /app/frontend
+
+# Copiar arquivos do frontend
 COPY frontend/package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev --silent
 
 COPY frontend/ ./
+
+# Build do frontend para produção
 ENV NODE_ENV=production
+# CORREÇÃO: Deixar vazio para Railway configurar automaticamente
 ENV REACT_APP_API_URL=""
 RUN npm run build
 
-# Build final
+# Stage final - Backend com frontend integrado
 FROM node:18-alpine
 
-RUN apk add --no-cache curl
+# Instalar dependências do sistema
+RUN apk add --no-cache curl dumb-init
+
+# Criar usuário não-root
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 
 WORKDIR /app
 
-# Backend dependencies first
+# Copiar package.json e package-lock.json do backend
 COPY backend/package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev --silent && npm cache clean --force
 
-# Copy backend source
+# Copiar código do backend
 COPY backend/src ./src
 
-# Copy frontend build to public folder
+# Copiar build do frontend para pasta public
 COPY --from=frontend-builder /app/frontend/build ./public
 
-# Create logs directory and set permissions
-RUN mkdir -p logs
-RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
-RUN chown -R nodejs:nodejs /app
+# Criar diretórios necessários
+RUN mkdir -p logs && chown -R nodejs:nodejs /app
 
+# Alterar para usuário não-root
 USER nodejs
 
+# Expor porta
 EXPOSE 3001
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=5 \
+# Health check melhorado
+HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:3001/api/health || exit 1
 
-# Comando de inicialização correto
+# CORREÇÃO: Usar dumb-init para melhor gerenciamento de processos
+ENTRYPOINT ["dumb-init", "--"]
+
+# Comando de inicialização
 CMD ["node", "src/server.js"]

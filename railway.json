@@ -6,6 +6,19 @@
   },
   "deploy": {
     "startCommand": "node src/server.js",
-    "restartPolicyType": "on_failure"
+    "restartPolicyType": "on_failure",
+    "restartPolicyMaxRetries": 3,
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 300
+  },
+  "environments": {
+    "production": {
+      "variables": {
+        "NODE_ENV": "production",
+        "PORT": "3001",
+        "LOG_LEVEL": "info",
+        "BCRYPT_ROUNDS": "12"
+      }
+    }
   }
 }
