@@ -1,3 +1,4 @@
+
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
@@ -5,7 +6,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "node src/server.js",
+    "startCommand": "node backend/src/server.js",
     "restartPolicyType": "on_failure"
   }
 }

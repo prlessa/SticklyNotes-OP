@@ -5,15 +5,19 @@ const config = {
   server: {
     port: parseInt(process.env.PORT) || 3001,
     nodeEnv: process.env.NODE_ENV || 'development',
-    corsOrigins: [
-      process.env.FRONTEND_URL || 'http://localhost:3000',
-      'http://localhost:3000', // fallback para desenvolvimento
-      'http://localhost:3001'  // para testes
-    ]
+    corsOrigins: process.env.NODE_ENV === 'production' 
+      ? [process.env.FRONTEND_URL || 'https://stickly-notes.up.railway.app'] 
+      : [
+          process.env.FRONTEND_URL || 'http://localhost:3000',
+          'http://localhost:3000', // fallback para desenvolvimento
+          'http://localhost:3001'  // para testes
+        ]
   },
 
   // URLs
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  frontendUrl: process.env.NODE_ENV === 'production' 
+    ? process.env.FRONTEND_URL || 'https://stickly-notes.up.railway.app'
+    : process.env.FRONTEND_URL || 'http://localhost:3000',
   
   // Banco de dados PostgreSQL
   database: {

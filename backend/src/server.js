@@ -84,6 +84,14 @@ class SticklyNotesServer {
       }
     });
 
+    // Servir arquivos estáticos do frontend (em produção)
+    if (config.server.nodeEnv === 'production') {
+      const path = require('path');
+      this.app.use(express.static(path.join(__dirname, '../public')));
+      
+      logger.info('📁 Servindo frontend estático');
+    }
+
     // Rota pública para verificar se painel requer senha (ANTES das rotas protegidas)
     this.app.get('/api/panels/:code/check', async (req, res) => {
       try {
