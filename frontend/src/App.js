@@ -1344,15 +1344,19 @@ const PanelScreen = ({ panel, onBackToHome }) => {
 };
 // frontend/src/App.js - SUBSTITUIR o Modal de Compartilhamento por este componente
 
+// frontend/src/App.js - SUBSTITUIR o componente ShareModal por este:
+
 const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
   const [copied, setCopied] = useState(false);
   const [copiedMessage, setCopiedMessage] = useState(false);
+  const [isEditingMessage, setIsEditingMessage] = useState(false);
+  const [customMessage, setCustomMessage] = useState('');
   
   // Gerar a URL do link
   const shareUrl = `${window.location.origin}/mural/${panel.id}`;
   
-  // Mensagem de convite personalizada baseada no tipo do painel
-  const getInviteMessage = () => {
+  // Mensagem de convite padrão baseada no tipo do painel
+  const getDefaultMessage = () => {
     const baseUrl = shareUrl;
     
     switch (panel.type) {
@@ -1367,6 +1371,17 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
     }
   };
 
+  // Inicializar mensagem personalizada quando modal abrir
+  useEffect(() => {
+    if (isOpen && !customMessage) {
+      setCustomMessage(getDefaultMessage());
+    }
+  }, [isOpen]);
+
+  const getCurrentMessage = () => {
+    return isEditingMessage ? customMessage : getDefaultMessage();
+  };
+
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
@@ -1379,12 +1394,26 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
 
   const handleCopyMessage = async () => {
     try {
-      await navigator.clipboard.writeText(getInviteMessage());
+      await navigator.clipboard.writeText(getCurrentMessage());
       setCopiedMessage(true);
       setTimeout(() => setCopiedMessage(false), 2000);
     } catch (err) {
       console.error('Erro ao copiar mensagem:', err);
     }
+  };
+
+  const handleEditMessage = () => {
+    setIsEditingMessage(true);
+    setCustomMessage(getDefaultMessage());
+  };
+
+  const handleSaveMessage = () => {
+    setIsEditingMessage(true); // Manter como editado
+  };
+
+  const handleResetMessage = () => {
+    setCustomMessage(getDefaultMessage());
+    setIsEditingMessage(false);
   };
 
   if (!isOpen) return null;
@@ -1416,23 +1445,67 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
 
         {/* Mensagem de convite */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            💬 Mensagem de convite
-          </label>
-          <div className="bg-gray-50 rounded-lg p-4 border">
-            <pre className={`text-gray-800 whitespace-pre-wrap ${isMobile ? 'text-sm' : 'text-base'}`}>
-              {getInviteMessage()}
-            </pre>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">
+              💬 Mensagem de convite
+            </label>
+            <button
+              onClick={isEditingMessage ? handleResetMessage : handleEditMessage}
+              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+            >
+              {isEditingMessage ? (
+                <>
+                  <span>🔄</span> Restaurar padrão
+                </>
+              ) : (
+                <>
+                  <span>✏️</span> Personalizar
+                </>
+              )}
+            </button>
           </div>
-          <button
-            onClick={handleCopyMessage}
-            className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-          >
-            {copiedMessage ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            {copiedMessage ? 'Mensagem copiada!' : 'Copiar convite completo'}
-          </button>
+          
+          <div className="bg-gray-50 rounded-lg border">
+            {isEditingMessage ? (
+              <textarea
+                value={customMessage}
+                onChange={(e) => setCustomMessage(e.target.value)}
+                className={`w-full h-48 p-4 bg-transparent resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg ${
+                  isMobile ? 'text-sm' : 'text-base'
+                }`}
+                placeholder="Escreva sua mensagem personalizada..."
+              />
+            ) : (
+              <pre className={`p-4 text-gray-800 whitespace-pre-wrap ${isMobile ? 'text-sm' : 'text-base'}`}>
+                {getCurrentMessage()}
+              </pre>
+            )}
+          </div>
+          
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={handleCopyMessage}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              {copiedMessage ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copiedMessage ? 'Mensagem copiada!' : 'Copiar convite'}
+            </button>
+            
+            {isEditingMessage && customMessage !== getDefaultMessage() && (
+              <button
+                onClick={handleSaveMessage}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              >
+                ✓ Salvar
+              </button>
+            )}
+          </div>
+          
           <p className="text-xs text-gray-500 mt-1">
-            Mensagem pronta para enviar no WhatsApp, Telegram, etc.
+            {isEditingMessage ? 
+              'Personalize sua mensagem de convite' : 
+              'Mensagem pronta para WhatsApp, Telegram, etc.'
+            }
           </p>
         </div>
 
@@ -1461,7 +1534,7 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
           </h4>
           <ul className="text-sm text-blue-700 space-y-1">
             <li>• O link permite acesso direto sem senha</li>
-            <li>• A mensagem já vem formatada para redes sociais</li>
+            <li>• Você pode personalizar a mensagem de convite</li>
             <li>• Máximo de {panel.max_users || 15} usuários simultâneos</li>
             <li>• O código também funciona na tela "Acessar Mural"</li>
           </ul>
@@ -1470,6 +1543,7 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
     </Modal>
   );
 };
+
 
 const AppContent = () => {
   const { isAuthenticated, isLoading } = useUser();
