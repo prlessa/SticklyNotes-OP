@@ -1542,4 +1542,12 @@ const AppContent = () => {
   return <HomeScreen />;
 };
 
+const App = () => {
+  return (
+    <UserProvider>
+      <AppContent />
+    </UserProvider>
+  );
+};
+
 export default App;
