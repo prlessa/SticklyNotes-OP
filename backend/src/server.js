@@ -69,6 +69,8 @@ class SticklyNotesServer {
           status: 'healthy', 
           service: 'Stickly Notes Backend',
           timestamp: new Date().toISOString(),
+          port: process.env.PORT || 'not-set',
+          railway_domain: process.env.RAILWAY_PUBLIC_DOMAIN || 'not-set',
           checks: {
             postgres: true,
             redis: redisStatus
@@ -90,6 +92,14 @@ class SticklyNotesServer {
       this.app.use(express.static(path.join(__dirname, '../public')));
       
       logger.info('📁 Servindo frontend estático');
+      
+      // Fallback para SPA - todas as rotas não-API redirecionam para index.html
+      this.app.get('*', (req, res, next) => {
+        if (req.url.startsWith('/api/')) {
+          return next();
+        }
+        res.sendFile(path.join(__dirname, '../public/index.html'));
+      });
     }
 
     // Rota pública para verificar se painel requer senha (ANTES das rotas protegidas)
@@ -121,7 +131,7 @@ class SticklyNotesServer {
     this.app.use('/api/users', userRoutes);
 
     // Middleware para capturar rotas não encontradas
-    this.app.use('*', (req, res) => {
+    this.app.use('/api/*', (req, res) => {
       res.status(404).json({
         error: 'Rota não encontrada',
         path: req.originalUrl
@@ -146,20 +156,21 @@ class SticklyNotesServer {
   setupWebSocket() {
     this.io.on('connection', (socket) => {
       logger.websocket('Socket conectado', { socketId: socket.id });
+      
       socket.on('new-post-created', (postData) => {
-      // Retransmitir novo post para todos no painel
-      socket.to(`panel:${postData.panel_id}`).emit('new-post', postData);
-});
+        // Retransmitir novo post para todos no painel
+        socket.to(`panel:${postData.panel_id}`).emit('new-post', postData);
+      });
 
-socket.on('post-position-updated', (postData) => {
-  // Retransmitir movimento para todos no painel
-  socket.to(`panel:${postData.panel_id}`).emit('post-moved', postData);
-});
+      socket.on('post-position-updated', (postData) => {
+        // Retransmitir movimento para todos no painel
+        socket.to(`panel:${postData.panel_id}`).emit('post-moved', postData);
+      });
 
-socket.on('post-deleted', (data) => {
-  // Retransmitir deleção para todos no painel
-  socket.to(`panel:${data.panel_id}`).emit('post-deleted', data);
-});
+      socket.on('post-deleted', (data) => {
+        // Retransmitir deleção para todos no painel
+        socket.to(`panel:${data.panel_id}`).emit('post-deleted', data);
+      });
 
       // Join em um painel específico
       socket.on('join-panel', async (panelId, userName, userId) => {
@@ -308,17 +319,39 @@ socket.on('post-deleted', (data) => {
         }
       }, 5 * 60 * 1000); // 5 minutos
 
-      // Iniciar servidor
-      const port = config.server.port || 3001;
+      // *** CORREÇÃO CRÍTICA PARA RAILWAY ***
+      // Railway sempre define process.env.PORT
+      const port = process.env.PORT || config.server.port || 3001;
+      
+      // DEVE escutar em 0.0.0.0 para Railway funcionar
       this.httpServer.listen(port, '0.0.0.0', () => {
         logger.info(`🚀 Servidor rodando na porta ${port}`);
         logger.info(`📡 WebSocket habilitado`);
         logger.info(`💾 Bancos conectados`);
         logger.info(`🔐 Autenticação JWT ativada`);
         
+        // LOGS ESPECÍFICOS PARA RAILWAY
+        if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+          logger.info(`🌐 Railway Domain: https://${process.env.RAILWAY_PUBLIC_DOMAIN}`);
+        }
+        if (process.env.PORT) {
+          logger.info(`🚢 Railway Port: ${process.env.PORT}`);
+        }
+        if (process.env.DATABASE_URL) {
+          logger.info(`🗄️  Database: CONECTADO`);
+        }
+        if (process.env.REDIS_URL) {
+          logger.info(`🔴 Redis: CONECTADO`);
+        }
+        
         if (config.server.nodeEnv === 'development') {
           logger.info(`🌐 Frontend URL: ${config.frontendUrl}`);
           logger.info(`🔍 Health check: http://localhost:${port}/api/health`);
+        } else {
+          // Em produção Railway
+          logger.info(`🔍 Health check: http://0.0.0.0:${port}/api/health`);
+          logger.info(`🌍 CORS Origins: ${JSON.stringify(config.server.corsOrigins)}`);
+          logger.info(`📁 Servindo frontend estático: ${config.server.nodeEnv === 'production'}`);
         }
       });
 
