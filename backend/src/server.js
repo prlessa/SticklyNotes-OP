@@ -111,6 +111,32 @@ class SticklyNotesServer {
       }
     });
   });
+
+  // Rotas protegidas (requerem autenticação)
+this.app.use('/api/panels', panelRoutes);
+this.app.use('/api/posts', postRoutes);
+this.app.use('/api/users', userRoutes);
+
+// ADICIONAR ESTE DEBUG:
+console.log('🛣️ Verificando rotas registradas:');
+this.app._router.stack.forEach((middleware, index) => {
+  if (middleware.route) {
+    // Rota direta
+    const methods = Object.keys(middleware.route.methods).join(', ').toUpperCase();
+    console.log(`  ${index}. ${methods} ${middleware.route.path}`);
+  } else if (middleware.name === 'router') {
+    // Router middleware
+    console.log(`  ${index}. ROUTER ${middleware.regexp}`);
+    if (middleware.handle && middleware.handle.stack) {
+      middleware.handle.stack.forEach((layer, subIndex) => {
+        if (layer.route) {
+          const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+          console.log(`    ${index}.${subIndex} ${methods} ${layer.route.path}`);
+        }
+      });
+    }
+  }
+});
 }
 
     // Rota pública para verificar se painel requer senha (ANTES das rotas protegidas)
