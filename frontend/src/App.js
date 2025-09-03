@@ -13,14 +13,34 @@ import {
   LIMITS, ERROR_MESSAGES 
 } from './constants/config';
 
+// Sistema de roteamento simples
+const useSimpleRouter = () => {
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+  
+  const navigate = (path) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+  };
+  
+  return { currentPath, navigate };
+};
+
 // Função para detectar se estamos em uma rota de link
-const isLinkAccess = () => {
-  return window.location.pathname.startsWith('/mural/');
+const isLinkAccess = (path = window.location.pathname) => {
+  return path.startsWith('/mural/');
 };
 
 // Função para extrair código da URL
-const getLinkCode = () => {
-  const path = window.location.pathname;
+const getLinkCode = (path = window.location.pathname) => {
   const match = path.match(/\/mural\/([A-Z0-9]{6})/i);
   return match ? match[1].toUpperCase() : null;
 };
@@ -1354,7 +1374,14 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
   
   // Gerar a URL do link
   const shareUrl = `${window.location.origin}/mural/${panel.id}`;
-  
+      useEffect(() => {
+    if (isOpen && panel) {
+      console.log('🔗 URL gerada para compartilhamento:');
+      console.log('  - Origin:', window.location.origin);
+      console.log('  - Panel ID:', panel.id);
+      console.log('  - URL completa:', shareUrl);
+    }
+  }, [isOpen, panel, shareUrl]);
   // Mensagem de convite padrão baseada no tipo do painel
   const getDefaultMessage = () => {
     const baseUrl = shareUrl;
@@ -1494,34 +1521,52 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
 
 const AppContent = () => {
   const { isAuthenticated, isLoading } = useUser();
+  const { currentPath, navigate } = useSimpleRouter();
   const [linkPanel, setLinkPanel] = useState(null);
   const [linkError, setLinkError] = useState('');
+  const [linkLoading, setLinkLoading] = useState(false);
 
   // Verificar se estamos acessando via link
   useEffect(() => {
     const handleLinkAccess = async () => {
-      if (isAuthenticated && isLinkAccess()) {
-        const code = getLinkCode();
+      console.log('🔗 Verificando acesso via link:', currentPath);
+      
+      if (isAuthenticated && isLinkAccess(currentPath)) {
+        const code = getLinkCode(currentPath);
+        console.log('🔍 Código extraído da URL:', code);
+        
         if (code) {
+          setLinkLoading(true);
+          setLinkError('');
+          
           try {
             console.log('🔗 Tentando acessar painel via link:', code);
             const panel = await apiService.accessPanelViaLink(code);
+            console.log('✅ Painel acessado com sucesso:', panel.name);
+            
             setLinkPanel(panel);
-            window.history.replaceState({}, document.title, '/');
-            console.log('✅ Acesso via link realizado com sucesso');
+            // Limpar a URL para não mostrar o código
+            navigate('/');
+            
           } catch (err) {
             console.error('❌ Erro ao acessar via link:', err);
             setLinkError(err.message);
+          } finally {
+            setLinkLoading(false);
           }
+        } else {
+          console.error('❌ Código não encontrado na URL:', currentPath);
+          setLinkError('Link inválido');
         }
       }
     };
 
     handleLinkAccess();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentPath, navigate]);
 
-  if (isLoading) {
-    return <LoadingSpinner message="Inicializando..." />;
+  if (isLoading || linkLoading) {
+    const message = linkLoading ? 'Acessando mural via link...' : 'Inicializando...';
+    return <LoadingSpinner message={message} />;
   }
 
   // Se teve erro ao acessar via link
@@ -1530,17 +1575,24 @@ const AppContent = () => {
       <div className="min-h-screen bg-gradient-to-br from-red-100 to-pink-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-md w-full border border-gray-100 text-center">
           <div className="text-6xl mb-4">😔</div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Ops!</h2>
-          <p className="text-gray-600 mb-6">{linkError}</p>
-          <button
-            onClick={() => {
-              setLinkError('');
-              window.location.href = '/';
-            }}
-            className="w-full py-3 rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-          >
-            Voltar ao Início
-          </button>
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Link Inválido</h2>
+          <p className="text-gray-600 mb-2">Não conseguimos acessar este mural:</p>
+          <p className="text-red-600 text-sm mb-6">"{linkError}"</p>
+          <div className="space-y-3">
+            <button
+              onClick={() => {
+                setLinkError('');
+                setLinkPanel(null);
+                navigate('/');
+              }}
+              className="w-full py-3 rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+            >
+              Ir para Página Inicial
+            </button>
+            <p className="text-xs text-gray-500">
+              Verifique se o link está correto ou se você tem permissão para acessar este mural.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -1555,7 +1607,10 @@ const AppContent = () => {
     return (
       <PanelScreen 
         panel={linkPanel} 
-        onBackToHome={() => setLinkPanel(null)}
+        onBackToHome={() => {
+          setLinkPanel(null);
+          navigate('/');
+        }}
       />
     );
   }

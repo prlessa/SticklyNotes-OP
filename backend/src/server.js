@@ -88,19 +88,30 @@ class SticklyNotesServer {
 
     // Servir arquivos estáticos do frontend (em produção)
     if (config.server.nodeEnv === 'production') {
-      const path = require('path');
-      this.app.use(express.static(path.join(__dirname, '../public')));
-      
-      logger.info('📁 Servindo frontend estático');
-      
-      // Fallback para SPA - todas as rotas não-API redirecionam para index.html
-      this.app.get('*', (req, res, next) => {
-        if (req.url.startsWith('/api/')) {
-          return next();
-        }
-        res.sendFile(path.join(__dirname, '../public/index.html'));
-      });
+  const path = require('path');
+  
+  // Servir arquivos estáticos
+  this.app.use(express.static(path.join(__dirname, '../public')));
+  logger.info('📁 Servindo frontend estático');
+  
+  // IMPORTANTE: Configurar SPA routing APÓS as rotas da API
+  // mas ANTES do middleware de erro 404
+  this.app.get('*', (req, res, next) => {
+    // Se for rota da API, continuar para próximo middleware
+    if (req.path.startsWith('/api/')) {
+      return next();
     }
+    
+    // Para qualquer outra rota, servir o index.html (SPA routing)
+    console.log('🌐 SPA Route:', req.path);
+    res.sendFile(path.join(__dirname, '../public/index.html'), (err) => {
+      if (err) {
+        console.error('❌ Erro ao servir index.html:', err);
+        res.status(500).send('Erro interno do servidor');
+      }
+    });
+  });
+}
 
     // Rota pública para verificar se painel requer senha (ANTES das rotas protegidas)
     this.app.get('/api/panels/:code/check', async (req, res) => {
