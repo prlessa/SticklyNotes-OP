@@ -1361,13 +1361,13 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
     
     switch (panel.type) {
       case 'couple':
-        return `💕 Oi amor! Te convido para nosso cantinho especial no Stickly Notes!\n\n"${panel.name}"\n\nVem deixar suas mensagens de carinho aqui: ${baseUrl}\n\n#JuntosNoStickly`;
+        return `💕 Oi amor! Te convido para nosso cantinho especial no Stickly Notes!\n\nVem deixar suas mensagens de carinho aqui: ${baseUrl}\n\n#JuntosNoStickly`;
         
       case 'family':
-        return `🏠 Olá família! Criei nosso mural virtual no Stickly Notes!\n\n"${panel.name}"\n\nVamos compartilhar nossos momentos e recados aqui: ${baseUrl}\n\n#FamíliaUnida`;
+        return `🏠 Olá família! Criei nosso mural virtual no Stickly Notes!\n\nVamos compartilhar nossos momentos e recados aqui: ${baseUrl}\n\n#FamíliaUnida`;
         
       default: // friends
-        return `🎉 Oi pessoal! Criei um mural colaborativo para a gente no Stickly Notes!\n\n"${panel.name}"\n\nVem compartilhar ideias e conversas aqui: ${baseUrl}\n\n#AmigosNoStickly`;
+        return `🎉 Oi pessoal! Criei um mural colaborativo para a gente no Stickly Notes!\n\nVem compartilhar ideias e conversas aqui: ${baseUrl}\n\n#AmigosNoStickly`;
     }
   };
 
@@ -1421,28 +1421,6 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Compartilhar Mural" size="large">
       <div className="space-y-6">
-        {/* Link direto */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            🔗 Link de acesso direto
-          </label>
-          <div className="bg-gray-50 rounded-lg p-4 border">
-            <div className={`font-mono text-gray-800 break-all ${isMobile ? 'text-sm' : 'text-base'}`}>
-              {shareUrl}
-            </div>
-          </div>
-          <button
-            onClick={handleCopyLink}
-            className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            {copied ? 'Link copiado!' : 'Copiar link'}
-          </button>
-          <p className="text-xs text-gray-500 mt-1">
-            Acesso direto sem necessidade de senha
-          </p>
-        </div>
-
         {/* Mensagem de convite */}
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -1507,37 +1485,6 @@ const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
               'Mensagem pronta para WhatsApp, Telegram, etc.'
             }
           </p>
-        </div>
-
-        {/* Código tradicional */}
-        <div className="border-t pt-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            🔢 Ou use o código tradicional
-          </label>
-          <div className="bg-gray-100 rounded-lg p-4">
-            <div className={`font-mono font-bold text-gray-800 tracking-wider text-center ${
-              isMobile ? 'text-xl' : 'text-2xl'
-            }`}>
-              {panel.id}
-            </div>
-          </div>
-          <p className="text-xs text-gray-500 mt-1 text-center">
-            Para quem preferir digitar o código manualmente
-          </p>
-        </div>
-
-        {/* Dicas */}
-        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-          <h4 className="font-medium text-blue-800 mb-2 flex items-center">
-            <span className="mr-2">💡</span>
-            Dicas de compartilhamento
-          </h4>
-          <ul className="text-sm text-blue-700 space-y-1">
-            <li>• O link permite acesso direto sem senha</li>
-            <li>• Você pode personalizar a mensagem de convite</li>
-            <li>• Máximo de {panel.max_users || 15} usuários simultâneos</li>
-            <li>• O código também funciona na tela "Acessar Mural"</li>
-          </ul>
         </div>
       </div>
     </Modal>
