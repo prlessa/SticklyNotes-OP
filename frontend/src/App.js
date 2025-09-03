@@ -969,7 +969,7 @@ if (currentScreen === 'my-panels') {
   );
 };
 
-// Componente do Painel (Tela principal do mural) - Atualizado com visual de mural
+// Componente do Painel (Tela principal do mural) - Versão Mobile Responsiva
 const PanelScreen = ({ panel, onBackToHome }) => {
   const { user, logout } = useUser();
   const [posts, setPosts] = useState([]);
@@ -980,9 +980,22 @@ const PanelScreen = ({ panel, onBackToHome }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const colors = getColors(panel.type);
   const userName = `${user?.firstName} ${user?.lastName}`;
+
+  // Detectar mobile e ajustar layout
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Carregar dados iniciais
   useEffect(() => {
@@ -990,7 +1003,20 @@ const PanelScreen = ({ panel, onBackToHome }) => {
       try {
         setIsLoading(true);
         const postsData = await apiService.getPanelPosts(panel.id);
-        setPosts(postsData);
+        
+        // Ajustar posições dos posts para mobile se necessário
+        const adjustedPosts = postsData.map(post => {
+          if (isMobile) {
+            return {
+              ...post,
+              position_x: Math.min(post.position_x || 50, window.innerWidth - 240),
+              position_y: Math.min(post.position_y || 50, window.innerHeight - 200)
+            };
+          }
+          return post;
+        });
+        
+        setPosts(adjustedPosts);
       } catch (err) {
         setError('Erro ao carregar dados');
       } finally {
@@ -999,7 +1025,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     };
 
     loadInitialData();
-  }, [panel.id]);
+  }, [panel.id, isMobile]);
 
   // Handlers de WebSocket
   const handleNewPost = useCallback((post) => {
@@ -1042,19 +1068,23 @@ const PanelScreen = ({ panel, onBackToHome }) => {
 
   const handleCreatePost = useCallback(async (postData) => {
     try {
+      // Posição aleatória ajustada para mobile
+      const maxX = isMobile ? window.innerWidth - 240 : 600;
+      const maxY = isMobile ? window.innerHeight - 300 : 300;
+      
       await apiService.createPost(panel.id, {
         content: postData.content,
         color: postData.color,
         author_name: postData.anonymous ? null : userName,
-        position_x: Math.floor(Math.random() * 600) + 50,
-        position_y: Math.floor(Math.random() * 300) + 50
+        position_x: Math.floor(Math.random() * maxX) + 20,
+        position_y: Math.floor(Math.random() * maxY) + (isMobile ? 120 : 80)
       });
       
       setShowNewPostForm(false);
     } catch (err) {
       setError(err.message);
     }
-  }, [panel.id, userName]);
+  }, [panel.id, userName, isMobile]);
 
   const handleDeletePost = useCallback(async (postId) => {
     try {
@@ -1087,21 +1117,21 @@ const PanelScreen = ({ panel, onBackToHome }) => {
   }, [panel.id]);
 
   const handleLeavePanel = useCallback(async () => {
-  try {
-    console.log('🚪 Saindo do painel:', panel.id);
-    await apiService.leavePanel(panel.id);
-    console.log('✅ Saída realizada com sucesso');
-    
-    if (onBackToHome) {
-      onBackToHome();
-    } else {
-      window.location.reload();
+    try {
+      console.log('🚪 Saindo do painel:', panel.id);
+      await apiService.leavePanel(panel.id);
+      console.log('✅ Saída realizada com sucesso');
+      
+      if (onBackToHome) {
+        onBackToHome();
+      } else {
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('❌ Erro ao sair do painel:', err);
+      setError(err.message);
     }
-  } catch (err) {
-    console.error('❌ Erro ao sair do painel:', err);
-    setError(err.message);
-  }
-}, [panel.id, onBackToHome]);
+  }, [panel.id, onBackToHome]);
 
   if (isLoading) {
     return <LoadingSpinner message="Carregando mural..." />;
@@ -1109,7 +1139,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
 
   return (
     <div 
-      className="min-h-screen relative"
+      className="min-h-screen relative overflow-hidden"
       style={{ backgroundColor: panel.background_color }}
     >
       {/* Textura de mural - padrão de cortiça */}
@@ -1124,71 +1154,124 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         }}
       />
 
-      {/* Header Flutuante */}
-      <div className="fixed top-4 left-4 right-4 z-50">
+      {/* Header Responsivo */}
+      <div className={`fixed top-0 left-0 right-0 z-50 ${isMobile ? 'p-2' : 'p-4'}`}>
         <div 
-          className="rounded-2xl shadow-lg border-2 p-4"
+          className={`rounded-xl shadow-lg border-2 ${isMobile ? 'p-2' : 'p-4'}`}
           style={{ 
             backgroundColor: panel.background_color,
             borderColor: colors.notes[0] || '#A8D8EA'
           }}
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-800">{panel.name}</h1>
-              <span className="ml-3 px-2 py-1 bg-white bg-opacity-70 rounded text-xs text-gray-600 font-mono">
-                {panel.id}
-              </span>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="flex items-center text-sm text-gray-600">
-                <Users className="w-4 h-4 mr-1" />
-                {activeUsers.length}
+          {isMobile ? (
+            // Layout mobile - compacto
+            <div className="space-y-2">
+              {/* Primeira linha - título e código */}
+              <div className="flex items-center justify-between">
+                <h1 className="text-sm font-bold text-gray-800 truncate flex-1 mr-2">
+                  {panel.name}
+                </h1>
+                <span className="px-1.5 py-0.5 bg-white bg-opacity-70 rounded text-xs text-gray-600 font-mono">
+                  {panel.id}
+                </span>
               </div>
               
-              <button
-                onClick={() => setShowShareModal(true)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-black hover:bg-opacity-10 transition-colors text-sm"
-                style={{ backgroundColor: panel.background_color }}
-              >
-                <Share2 className="w-4 h-4" />
-                Compartilhar
-              </button>
-              
-              <button
-                onClick={() => setShowNewPostForm(true)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-black hover:bg-opacity-10 transition-colors text-sm"
-                style={{ backgroundColor: panel.background_color }}
-              >
-                <Plus className="w-4 h-4" />
-                Nova Nota
-              </button>
-
-              <button
-                onClick={onBackToHome}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-100 transition-colors text-sm text-blue-600"
-                style={{ backgroundColor: panel.background_color }}
-              >
-                <Home className="w-4 h-4" />
-                Início
-              </button>
-
-              <button
-                onClick={() => setShowLeaveModal(true)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-100 transition-colors text-sm text-red-600"
-                style={{ backgroundColor: panel.background_color }}
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Sair
-              </button>
+              {/* Segunda linha - botões */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setShowNewPostForm(true)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black hover:bg-opacity-10 transition-colors text-xs"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span className="hidden xs:inline">Nota</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => setShowShareModal(true)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black hover:bg-opacity-10 transition-colors text-xs"
+                  >
+                    <Share2 className="w-3 h-3" />
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-1">
+                  <div className="flex items-center text-xs text-gray-600">
+                    <Users className="w-3 h-3 mr-1" />
+                    {activeUsers.length}
+                  </div>
+                  
+                  <button
+                    onClick={onBackToHome}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-blue-100 transition-colors text-xs text-blue-600"
+                  >
+                    <Home className="w-3 h-3" />
+                  </button>
+                  
+                  <button
+                    onClick={() => setShowLeaveModal(true)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-100 transition-colors text-xs text-red-600"
+                  >
+                    <ArrowLeft className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            // Layout desktop - original
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <h1 className="text-xl font-bold text-gray-800">{panel.name}</h1>
+                <span className="ml-3 px-2 py-1 bg-white bg-opacity-70 rounded text-xs text-gray-600 font-mono">
+                  {panel.id}
+                </span>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <div className="flex items-center text-sm text-gray-600">
+                  <Users className="w-4 h-4 mr-1" />
+                  {activeUsers.length}
+                </div>
+                
+                <button
+                  onClick={() => setShowShareModal(true)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-black hover:bg-opacity-10 transition-colors text-sm"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Compartilhar
+                </button>
+                
+                <button
+                  onClick={() => setShowNewPostForm(true)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-black hover:bg-opacity-10 transition-colors text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nova Nota
+                </button>
+
+                <button
+                  onClick={onBackToHome}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-100 transition-colors text-sm text-blue-600"
+                >
+                  <Home className="w-4 h-4" />
+                  Início
+                </button>
+
+                <button
+                  onClick={() => setShowLeaveModal(true)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-100 transition-colors text-sm text-red-600"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Sair
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Área do Mural */}
-      <div className="relative min-h-screen pt-24 pb-8 px-8">
+      <div className={`relative min-h-screen ${isMobile ? 'pt-20 pb-4 px-2' : 'pt-24 pb-8 px-8'}`}>
         {posts.map(post => (
           <PostIt
             key={post.id}
@@ -1201,13 +1284,25 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         ))}
         
         {posts.length === 0 && (
-          <div className="text-center text-gray-500 mt-20 bg-white bg-opacity-70 rounded-xl p-8 mx-auto max-w-md">
-            <StickyNote className="w-16 h-16 mx-auto mb-4 opacity-50" />
-            <p className="text-lg">Seu mural está vazio</p>
-            <p className="text-sm">Clique em "Nova Nota" para começar!</p>
+          <div className={`text-center text-gray-500 bg-white bg-opacity-70 rounded-xl mx-auto max-w-md ${
+            isMobile ? 'mt-10 p-6' : 'mt-20 p-8'
+          }`}>
+            <StickyNote className={`mx-auto mb-4 opacity-50 ${isMobile ? 'w-12 h-12' : 'w-16 h-16'}`} />
+            <p className={`${isMobile ? 'text-base' : 'text-lg'}`}>Seu mural está vazio</p>
+            <p className={`${isMobile ? 'text-sm' : 'text-sm'}`}>Clique em "Nova Nota" para começar!</p>
           </div>
         )}
       </div>
+
+      {/* Botão flutuante para nova nota no mobile */}
+      {isMobile && (
+        <button
+          onClick={() => setShowNewPostForm(true)}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center z-40"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
 
       {/* Modal de Nova Nota */}
       {showNewPostForm && (
@@ -1232,7 +1327,9 @@ const PanelScreen = ({ panel, onBackToHome }) => {
           </p>
           
           <div className="bg-gray-100 rounded-lg p-4 mb-4">
-            <div className="font-mono text-2xl font-bold text-gray-800 tracking-wider">
+            <div className={`font-mono font-bold text-gray-800 tracking-wider ${
+              isMobile ? 'text-xl' : 'text-2xl'
+            }`}>
               {panel.id}
             </div>
           </div>
@@ -1279,7 +1376,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
 
       {/* Toast de Erro */}
       {error && (
-        <div className="fixed bottom-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50">
+        <div className={`fixed ${isMobile ? 'bottom-20 left-4 right-4' : 'bottom-4 right-4'} bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50`}>
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
             {error}

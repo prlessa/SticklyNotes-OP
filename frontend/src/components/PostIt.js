@@ -6,39 +6,102 @@ export function PostIt({ post, onDelete, onMove, canDelete, currentUserId }) {
     y: post.position_y || 50 
   });
   const [isDragging, setIsDragging] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const noteRef = useRef(null);
   const dragStart = useRef({ x: 0, y: 0 });
 
-  const handleMouseDown = (e) => {
-    if (e.target.tagName === 'BUTTON') return; // Não arrastar se clicar no botão
+  // Detectar se é mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
     
-    e.preventDefault();
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Ajustar posição inicial para mobile
+  useEffect(() => {
+    if (isMobile && noteRef.current) {
+      const parent = noteRef.current.parentElement;
+      if (parent) {
+        const parentRect = parent.getBoundingClientRect();
+        const noteWidth = 250; // Largura da nota
+        const noteHeight = 180; // Altura da nota
+        
+        // Garantir que a nota fique dentro da tela
+        let adjustedX = Math.min(position.x, parentRect.width - noteWidth - 20);
+        let adjustedY = Math.min(position.y, parentRect.height - noteHeight - 20);
+        
+        // Mínimo de 10px das bordas
+        adjustedX = Math.max(10, adjustedX);
+        adjustedY = Math.max(10, adjustedY);
+        
+        if (adjustedX !== position.x || adjustedY !== position.y) {
+          setPosition({ x: adjustedX, y: adjustedY });
+        }
+      }
+    }
+  }, [isMobile, position.x, position.y]);
+
+  const handleStart = (clientX, clientY, e) => {
+    if (e?.target?.tagName === 'BUTTON') return;
+    
+    e?.preventDefault();
     const rect = noteRef.current.getBoundingClientRect();
     dragStart.current = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
+      x: clientX - rect.left,
+      y: clientY - rect.top
     };
     setIsDragging(true);
   };
 
+  // Mouse events
+  const handleMouseDown = (e) => {
+    handleStart(e.clientX, e.clientY, e);
+  };
+
+  // Touch events para mobile
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    handleStart(touch.clientX, touch.clientY, e);
+  };
+
   useEffect(() => {
-    const handleMouseMove = (e) => {
+    const handleMove = (clientX, clientY) => {
       if (!isDragging || !noteRef.current) return;
       
       const parent = noteRef.current.parentElement;
       const parentRect = parent.getBoundingClientRect();
       
-      let newX = e.clientX - parentRect.left - dragStart.current.x;
-      let newY = e.clientY - parentRect.top - dragStart.current.y;
+      let newX = clientX - parentRect.left - dragStart.current.x;
+      let newY = clientY - parentRect.top - dragStart.current.y;
       
-      // Limitar dentro da área do painel
-      newX = Math.max(0, Math.min(newX, parentRect.width - 250));
-      newY = Math.max(0, Math.min(newY, parentRect.height - 200));
+      // Dimensões da nota
+      const noteWidth = isMobile ? 220 : 250;
+      const noteHeight = isMobile ? 160 : 180;
+      
+      // Limitar dentro da área do painel com margens adequadas para mobile
+      const margin = isMobile ? 10 : 20;
+      newX = Math.max(margin, Math.min(newX, parentRect.width - noteWidth - margin));
+      newY = Math.max(margin, Math.min(newY, parentRect.height - noteHeight - margin));
       
       setPosition({ x: newX, y: newY });
     };
 
-    const handleMouseUp = () => {
+    const handleMouseMove = (e) => {
+      handleMove(e.clientX, e.clientY);
+    };
+
+    const handleTouchMove = (e) => {
+      e.preventDefault(); // Previne scroll durante drag
+      const touch = e.touches[0];
+      handleMove(touch.clientX, touch.clientY);
+    };
+
+    const handleEnd = () => {
       if (isDragging) {
         setIsDragging(false);
         if (onMove) {
@@ -48,15 +111,22 @@ export function PostIt({ post, onDelete, onMove, canDelete, currentUserId }) {
     };
 
     if (isDragging) {
+      // Mouse events
       document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('mouseup', handleEnd);
+      
+      // Touch events
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleEnd);
       
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('mouseup', handleEnd);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleEnd);
       };
     }
-  }, [isDragging, position, post.id, onMove]);
+  }, [isDragging, position, post.id, onMove, isMobile]);
 
   const formatDate = (date) => {
     try {
@@ -72,52 +142,64 @@ export function PostIt({ post, onDelete, onMove, canDelete, currentUserId }) {
     }
   };
 
-  // Usuário pode deletar se é o autor do post ou se o post é anônimo
   const canDeletePost = post.author_user_id === currentUserId || (!post.author_name && canDelete);
 
   return (
     <div
       ref={noteRef}
-      className={`absolute w-64 min-h-[180px] p-4 rounded-lg shadow-lg transform transition-all duration-200 ${
+      className={`absolute transition-all duration-200 ${
         isDragging ? 'cursor-grabbing scale-105 rotate-1 shadow-xl z-50' : 'cursor-grab hover:shadow-xl hover:-rotate-1'
-      }`}
+      } ${
+        isMobile ? 'w-52 min-h-[140px] p-3' : 'w-64 min-h-[180px] p-4'
+      } rounded-lg shadow-lg transform`}
       style={{
         backgroundColor: post.color || '#A8D8EA',
         left: position.x,
         top: position.y,
-        background: `linear-gradient(135deg, ${post.color || '#A8D8EA'} 0%, ${post.color || '#A8D8EA'}dd 100%)`
+        background: `linear-gradient(135deg, ${post.color || '#A8D8EA'} 0%, ${post.color || '#A8D8EA'}dd 100%)`,
+        touchAction: 'none' // Importante para touch events
       }}
+      onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
     >
       {/* Fita adesiva */}
-      <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-16 h-6 bg-yellow-200 opacity-60 rotate-3 rounded-sm"></div>
+      <div className={`absolute -top-2 left-1/2 transform -translate-x-1/2 bg-yellow-200 opacity-60 rotate-3 rounded-sm ${
+        isMobile ? 'w-12 h-4' : 'w-16 h-6'
+      }`}></div>
       
       {/* Header do post */}
-      <div 
-        className="flex justify-between items-start mb-3 -m-2 p-2 cursor-grab active:cursor-grabbing"
-        onMouseDown={handleMouseDown}
-      >
+      <div className={`flex justify-between items-start mb-2 -m-2 p-2 cursor-grab active:cursor-grabbing ${
+        isMobile ? 'text-xs' : ''
+      }`}>
         <div className="flex-1">
-          <p className="text-xs font-medium text-gray-700">
+          <p className={`font-medium text-gray-700 ${isMobile ? 'text-xs' : 'text-xs'}`}>
             {post.author_name || 'Anônimo'}
           </p>
-          <p className="text-xs text-gray-500">
+          <p className={`text-gray-500 ${isMobile ? 'text-xs' : 'text-xs'}`}>
             {formatDate(post.created_at)}
           </p>
         </div>
         {canDeletePost && (
           <button
-            onClick={() => onDelete(post.id)}
-            className="p-1 hover:bg-black hover:bg-opacity-10 rounded transition-colors z-10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(post.id);
+            }}
+            className={`hover:bg-black hover:bg-opacity-10 rounded transition-colors z-10 ${
+              isMobile ? 'p-1 text-lg' : 'p-1 text-lg'
+            }`}
             style={{ cursor: 'pointer' }}
             title="Deletar nota"
           >
-            <span className="text-gray-600 text-lg font-bold">×</span>
+            <span className="text-gray-600 font-bold">×</span>
           </button>
         )}
       </div>
       
       {/* Conteúdo */}
-      <div className="text-gray-800 text-sm whitespace-pre-wrap break-words leading-relaxed">
+      <div className={`text-gray-800 whitespace-pre-wrap break-words leading-relaxed ${
+        isMobile ? 'text-xs' : 'text-sm'
+      }`}>
         {post.content}
       </div>
 
