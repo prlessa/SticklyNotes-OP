@@ -13,6 +13,18 @@ import {
   LIMITS, ERROR_MESSAGES 
 } from './constants/config';
 
+// Função para detectar se estamos em uma rota de link
+const isLinkAccess = () => {
+  return window.location.pathname.startsWith('/mural/');
+};
+
+// Função para extrair código da URL
+const getLinkCode = () => {
+  const path = window.location.pathname;
+  const match = path.match(/\/mural\/([A-Z0-9]{6})/i);
+  return match ? match[1].toUpperCase() : null;
+};
+
 // Função para obter cores baseadas no tipo do painel
 const getColors = (type) => {
   switch (type) {
@@ -1106,16 +1118,6 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     }
   }, [panel.id]);
 
-  const handleShare = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(panel.id);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Erro ao copiar:', err);
-    }
-  }, [panel.id]);
-
   const handleLeavePanel = useCallback(async () => {
     try {
       console.log('🚪 Saindo do painel:', panel.id);
@@ -1315,64 +1317,12 @@ const PanelScreen = ({ panel, onBackToHome }) => {
       )}
 
       {/* Modal de Compartilhamento */}
-      <Modal 
-        isOpen={showShareModal} 
-        onClose={() => setShowShareModal(false)}
-        title="Compartilhar Mural"
-        size="small"
-      >
-        <div className="text-center">
-          <p className="text-gray-600 mb-4">
-            Compartilhe este código com outros usuários:
-          </p>
-          
-          <div className="bg-gray-100 rounded-lg p-4 mb-4">
-            <div className={`font-mono font-bold text-gray-800 tracking-wider ${
-              isMobile ? 'text-xl' : 'text-2xl'
-            }`}>
-              {panel.id}
-            </div>
-          </div>
-          
-          <button
-            onClick={handleShare}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            {copied ? 'Copiado!' : 'Copiar Código'}
-          </button>
-        </div>
-      </Modal>
-
-      {/* Modal de Confirmação para Sair */}
-      <Modal 
-        isOpen={showLeaveModal} 
-        onClose={() => setShowLeaveModal(false)}
-        title="Sair do Mural"
-        size="small"
-      >
-        <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-orange-500 mx-auto mb-4" />
-          <p className="text-gray-600 mb-6">
-            Tem certeza que deseja sair do mural "{panel.name}"?
-          </p>
-          
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowLeaveModal(false)}
-              className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleLeavePanel}
-              className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Sair do Mural
-            </button>
-          </div>
-        </div>
-      </Modal>
+<ShareModal 
+  panel={panel}
+  isOpen={showShareModal} 
+  onClose={() => setShowShareModal(false)}
+  isMobile={isMobile}
+/>
 
       {/* Toast de Erro */}
       {error && (
@@ -1392,29 +1342,204 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     </div>
   );
 };
+// frontend/src/App.js - SUBSTITUIR o Modal de Compartilhamento por este componente
 
-// Componente Principal da Aplicação
+const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
+  const [copied, setCopied] = useState(false);
+  const [copiedMessage, setCopiedMessage] = useState(false);
+  
+  // Gerar a URL do link
+  const shareUrl = `${window.location.origin}/mural/${panel.id}`;
+  
+  // Mensagem de convite personalizada baseada no tipo do painel
+  const getInviteMessage = () => {
+    const baseUrl = shareUrl;
+    
+    switch (panel.type) {
+      case 'couple':
+        return `💕 Oi amor! Te convido para nosso cantinho especial no Stickly Notes!\n\n"${panel.name}"\n\nVem deixar suas mensagens de carinho aqui: ${baseUrl}\n\n#JuntosNoStickly`;
+        
+      case 'family':
+        return `🏠 Olá família! Criei nosso mural virtual no Stickly Notes!\n\n"${panel.name}"\n\nVamos compartilhar nossos momentos e recados aqui: ${baseUrl}\n\n#FamíliaUnida`;
+        
+      default: // friends
+        return `🎉 Oi pessoal! Criei um mural colaborativo para a gente no Stickly Notes!\n\n"${panel.name}"\n\nVem compartilhar ideias e conversas aqui: ${baseUrl}\n\n#AmigosNoStickly`;
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Erro ao copiar link:', err);
+    }
+  };
+
+  const handleCopyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(getInviteMessage());
+      setCopiedMessage(true);
+      setTimeout(() => setCopiedMessage(false), 2000);
+    } catch (err) {
+      console.error('Erro ao copiar mensagem:', err);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Compartilhar Mural" size="large">
+      <div className="space-y-6">
+        {/* Link direto */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            🔗 Link de acesso direto
+          </label>
+          <div className="bg-gray-50 rounded-lg p-4 border">
+            <div className={`font-mono text-gray-800 break-all ${isMobile ? 'text-sm' : 'text-base'}`}>
+              {shareUrl}
+            </div>
+          </div>
+          <button
+            onClick={handleCopyLink}
+            className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copied ? 'Link copiado!' : 'Copiar link'}
+          </button>
+          <p className="text-xs text-gray-500 mt-1">
+            Acesso direto sem necessidade de senha
+          </p>
+        </div>
+
+        {/* Mensagem de convite */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            💬 Mensagem de convite
+          </label>
+          <div className="bg-gray-50 rounded-lg p-4 border">
+            <pre className={`text-gray-800 whitespace-pre-wrap ${isMobile ? 'text-sm' : 'text-base'}`}>
+              {getInviteMessage()}
+            </pre>
+          </div>
+          <button
+            onClick={handleCopyMessage}
+            className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            {copiedMessage ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copiedMessage ? 'Mensagem copiada!' : 'Copiar convite completo'}
+          </button>
+          <p className="text-xs text-gray-500 mt-1">
+            Mensagem pronta para enviar no WhatsApp, Telegram, etc.
+          </p>
+        </div>
+
+        {/* Código tradicional */}
+        <div className="border-t pt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            🔢 Ou use o código tradicional
+          </label>
+          <div className="bg-gray-100 rounded-lg p-4">
+            <div className={`font-mono font-bold text-gray-800 tracking-wider text-center ${
+              isMobile ? 'text-xl' : 'text-2xl'
+            }`}>
+              {panel.id}
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-1 text-center">
+            Para quem preferir digitar o código manualmente
+          </p>
+        </div>
+
+        {/* Dicas */}
+        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+          <h4 className="font-medium text-blue-800 mb-2 flex items-center">
+            <span className="mr-2">💡</span>
+            Dicas de compartilhamento
+          </h4>
+          <ul className="text-sm text-blue-700 space-y-1">
+            <li>• O link permite acesso direto sem senha</li>
+            <li>• A mensagem já vem formatada para redes sociais</li>
+            <li>• Máximo de {panel.max_users || 15} usuários simultâneos</li>
+            <li>• O código também funciona na tela "Acessar Mural"</li>
+          </ul>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 const AppContent = () => {
   const { isAuthenticated, isLoading } = useUser();
+  const [linkPanel, setLinkPanel] = useState(null);
+  const [linkError, setLinkError] = useState('');
+
+  // Verificar se estamos acessando via link
+  useEffect(() => {
+    const handleLinkAccess = async () => {
+      if (isAuthenticated && isLinkAccess()) {
+        const code = getLinkCode();
+        if (code) {
+          try {
+            console.log('🔗 Tentando acessar painel via link:', code);
+            const panel = await apiService.accessPanelViaLink(code);
+            setLinkPanel(panel);
+            window.history.replaceState({}, document.title, '/');
+            console.log('✅ Acesso via link realizado com sucesso');
+          } catch (err) {
+            console.error('❌ Erro ao acessar via link:', err);
+            setLinkError(err.message);
+          }
+        }
+      }
+    };
+
+    handleLinkAccess();
+  }, [isAuthenticated]);
 
   if (isLoading) {
     return <LoadingSpinner message="Inicializando..." />;
+  }
+
+  // Se teve erro ao acessar via link
+  if (linkError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-100 to-pink-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-md w-full border border-gray-100 text-center">
+          <div className="text-6xl mb-4">😔</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Ops!</h2>
+          <p className="text-gray-600 mb-6">{linkError}</p>
+          <button
+            onClick={() => {
+              setLinkError('');
+              window.location.href = '/';
+            }}
+            className="w-full py-3 rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+          >
+            Voltar ao Início
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!isAuthenticated) {
     return <AuthScreen />;
   }
 
-  return <HomeScreen />;
-};
+  // Se acessou via link e obteve o painel, ir direto para o PanelScreen
+  if (linkPanel) {
+    return (
+      <PanelScreen 
+        panel={linkPanel} 
+        onBackToHome={() => setLinkPanel(null)}
+      />
+    );
+  }
 
-// App Principal
-const App = () => {
-  return (
-    <UserProvider>
-      <AppContent />
-    </UserProvider>
-  );
+  return <HomeScreen />;
 };
 
 export default App;

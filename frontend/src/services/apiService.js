@@ -154,6 +154,11 @@ class ApiService {
   async deletePost(postId, params) {
     return this.delete(`/api/posts/${postId}`, params);
   }
+
+  async accessPanelViaLink(code) {
+    console.log('📡 API: Acessando painel via link:', code);
+    return this.get(`/api/panels/link/${code}`);
+  }
 }
 
 export const apiService = new ApiService();
