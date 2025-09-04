@@ -29,6 +29,8 @@ class SticklyNotesServer {
     });
   }
 
+  
+
   setupMiddleware() {
     // Helmet com configuração mais permissiva para desenvolvimento
     this.app.use(helmet({
@@ -158,7 +160,73 @@ this.app._router.stack.forEach((middleware, index) => {
         res.status(500).json({ error: 'Erro interno' });
       }
     });
+    // ROTA DE LIMPEZA MANUAL (apenas para desenvolvimento/admin)
+    this.app.post('/api/admin/cleanup', async (req, res) => {
+      try {
+        if (config.server.nodeEnv !== 'development') {
+          return res.status(403).json({ error: 'Apenas disponível em desenvolvimento' });
+        }
 
+        const results = {
+          inactiveUsers: 0,
+          orphanPanels: 0,
+          stalePanels: 0,
+          deletedPosts: 0
+        };
+
+        // 1. Limpar usuários inativos
+        const inactiveUsers = await db.query(`
+          DELETE FROM active_users 
+          WHERE last_seen < NOW() - INTERVAL '5 minutes'
+          RETURNING panel_id, user_id
+        `);
+        results.inactiveUsers = inactiveUsers.rows.length;
+
+        // 2. Encontrar painéis órfãos
+        const orphanPanels = await db.query(`
+          SELECT p.id, p.name,
+                 (SELECT COUNT(*) FROM posts WHERE panel_id = p.id) as post_count
+          FROM panels p
+          WHERE NOT EXISTS (
+            SELECT 1 FROM panel_participants pp WHERE pp.panel_id = p.id
+          )
+        `);
+
+        // 3. Deletar painéis órfãos
+        for (const panel of orphanPanels.rows) {
+          await db.transaction(async (client) => {
+            const deletedPosts = await client.query('DELETE FROM posts WHERE panel_id = $1 RETURNING id', [panel.id]);
+            await client.query('DELETE FROM active_users WHERE panel_id = $1', [panel.id]);
+            await client.query('DELETE FROM panels WHERE id = $1', [panel.id]);
+            
+            results.deletedPosts += deletedPosts.rows.length;
+          });
+        }
+        results.orphanPanels = orphanPanels.rows.length;
+
+        // 4. Estatísticas finais
+        const stats = await db.query(`
+          SELECT 
+            (SELECT COUNT(*) FROM panels) as total_panels,
+            (SELECT COUNT(*) FROM active_users) as total_active_users,
+            (SELECT COUNT(*) FROM panel_participants) as total_participants,
+            (SELECT COUNT(*) FROM posts) as total_posts
+        `);
+
+        logger.info('🧹 Limpeza manual executada:', results);
+
+        res.json({
+          success: true,
+          results,
+          currentStats: stats.rows[0],
+          message: `Limpeza concluída: ${results.orphanPanels} painéis órfãos e ${results.inactiveUsers} usuários inativos removidos`
+        });
+
+      } catch (error) {
+        logger.error('Erro na limpeza manual:', error);
+        res.status(500).json({ error: 'Erro na limpeza', details: error.message });
+      }
+    });
     // Rotas de autenticação (públicas)
     this.app.use('/api/auth', authRoutes);
     
@@ -332,27 +400,105 @@ this.app._router.stack.forEach((middleware, index) => {
       this.setupRoutes();
       this.setupWebSocket();
 
-      // Cleanup automático de usuários inativos a cada 5 minutos
+// Cleanup automático a cada 5 minutos
       setInterval(async () => {
         try {
-          const result = await db.query(`
+          // 1. Remover usuários inativos (>30 dias)
+          const inactiveUsersResult = await db.query(`
             DELETE FROM active_users 
-            WHERE last_seen < NOW() - INTERVAL '10 minutes'
+            WHERE last_seen < NOW() - INTERVAL '30 days'
             RETURNING panel_id, user_id
           `);
 
-          if (result.rows.length > 0) {
-            logger.info(`Removidos ${result.rows.length} usuários inativos automaticamente`);
+          if (inactiveUsersResult.rows.length > 0) {
+            logger.info(`Removidos ${inactiveUsersResult.rows.length} usuários inativos automaticamente`);
             
             // Notificar via WebSocket sobre usuários que saíram
-            result.rows.forEach(row => {
+            inactiveUsersResult.rows.forEach(row => {
               this.io.to(`panel:${row.panel_id}`).emit('user-left', { 
                 userId: row.user_id 
               });
             });
           }
+
+          // 2. Identificar e deletar painéis órfãos (sem participantes permanentes)
+          const orphanPanelsResult = await db.query(`
+            SELECT p.id, p.name, p.created_at,
+                   (SELECT COUNT(*) FROM panel_participants pp WHERE pp.panel_id = p.id) as participant_count,
+                   (SELECT COUNT(*) FROM active_users au WHERE au.panel_id = p.id) as active_count,
+                   (SELECT COUNT(*) FROM posts WHERE panel_id = p.id) as post_count
+            FROM panels p
+            WHERE NOT EXISTS (
+              SELECT 1 FROM panel_participants pp WHERE pp.panel_id = p.id
+            )
+            AND p.created_at < NOW() - INTERVAL '24 hours'
+          `);
+
+          if (orphanPanelsResult.rows.length > 0) {
+            logger.info(`Encontrados ${orphanPanelsResult.rows.length} painéis órfãos para limpeza:`, 
+              orphanPanelsResult.rows.map(p => ({ id: p.id, name: p.name, posts: p.post_count }))
+            );
+
+            // Deletar painéis órfãos (CASCADE irá deletar posts automaticamente)
+            for (const panel of orphanPanelsResult.rows) {
+              try {
+                await db.transaction(async (client) => {
+                  // Deletar usuários ativos do painel
+                  await client.query('DELETE FROM active_users WHERE panel_id = $1', [panel.id]);
+                  
+                  // Deletar posts (se CASCADE não estiver configurado)
+                  const deletedPosts = await client.query('DELETE FROM posts WHERE panel_id = $1 RETURNING id', [panel.id]);
+                  
+                  // Deletar o painel
+                  await client.query('DELETE FROM panels WHERE id = $1', [panel.id]);
+                  
+                  logger.info(`🗑️ Painel órfão deletado: ${panel.id} (${panel.name}) - ${deletedPosts.rows.length} posts removidos`);
+                });
+
+                // Invalidar cache se existir
+                if (cache && cache.invalidate) {
+                  await cache.invalidate(`panel:${panel.id}`);
+                  await cache.invalidate(`posts:${panel.id}`);
+                }
+
+              } catch (error) {
+                logger.error(`Erro ao deletar painel órfão ${panel.id}:`, error);
+              }
+            }
+          }
+
+          // 3. Limpar painéis antigos sem atividade (>7 dias sem posts e sem usuários)
+          const staleDate = new Date();
+          staleDate.setDate(staleDate.getDate() - 7);
+
+          const stalePanelsResult = await db.query(`
+            DELETE FROM panels 
+            WHERE last_activity < $1 
+              AND NOT EXISTS (SELECT 1 FROM panel_participants WHERE panel_id = panels.id)
+              AND NOT EXISTS (SELECT 1 FROM active_users WHERE panel_id = panels.id)
+              AND (SELECT COUNT(*) FROM posts WHERE panel_id = panels.id) = 0
+            RETURNING id, name
+          `, [staleDate]);
+
+          if (stalePanelsResult.rows.length > 0) {
+            logger.info(`🧹 Removidos ${stalePanelsResult.rows.length} painéis antigos sem atividade`);
+          }
+
+          // 4. Log de estatísticas de limpeza
+          if (inactiveUsersResult.rows.length > 0 || orphanPanelsResult.rows.length > 0 || stalePanelsResult.rows.length > 0) {
+            const stats = await db.query(`
+              SELECT 
+                (SELECT COUNT(*) FROM panels) as total_panels,
+                (SELECT COUNT(*) FROM active_users) as total_active_users,
+                (SELECT COUNT(*) FROM panel_participants) as total_participants,
+                (SELECT COUNT(*) FROM posts) as total_posts
+            `);
+            
+            logger.info('📊 Estatísticas após limpeza:', stats.rows[0]);
+          }
+
         } catch (error) {
-          logger.error('Erro no cleanup automático:', error);
+          logger.error('❌ Erro no cleanup automático:', error);
         }
       }, 5 * 60 * 1000); // 5 minutos
 
