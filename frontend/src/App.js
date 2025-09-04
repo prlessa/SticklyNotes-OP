@@ -391,21 +391,29 @@ const AuthScreen = () => {
   );
 };
 
-// Card de Painel para "Meus Murais"
+// Card de Painel para "Meus Murais" - Versão Responsiva
 const PanelCard = ({ panel, onSelectPanel }) => {
   const getTypeIcon = (type) => {
     switch (type) {
-      case 'couple': return <Heart className="w-5 h-5 text-rose-500" />;
-      case 'family': return <HomeIcon className="w-5 h-5 text-green-600" />;
-      default: return <Users className="w-5 h-5 text-blue-600" />;
+      case 'couple': return <Heart className="w-4 h-4 sm:w-5 sm:h-5 text-rose-500" />;
+      case 'family': return <HomeIcon className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />;
+      default: return <Users className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />;
     }
   };
 
   const getTypeColor = (type) => {
     switch (type) {
-      case 'couple': return 'border-rose-200 bg-rose-50';
-      case 'family': return 'border-green-200 bg-green-50';
-      default: return 'border-blue-200 bg-blue-50';
+      case 'couple': return 'border-rose-200 bg-rose-50 hover:bg-rose-100';
+      case 'family': return 'border-green-200 bg-green-50 hover:bg-green-100';
+      default: return 'border-blue-200 bg-blue-50 hover:bg-blue-100';
+    }
+  };
+
+  const getTypeLabel = (type) => {
+    switch (type) {
+      case 'couple': return '💕 Casal';
+      case 'family': return '🏠 Família';
+      default: return '👥 Amigos';
     }
   };
 
@@ -420,20 +428,41 @@ const PanelCard = ({ panel, onSelectPanel }) => {
   return (
     <button
       onClick={() => onSelectPanel(panel)}
-      className={`p-4 rounded-xl border-2 ${getTypeColor(panel.type)} hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1 text-left w-full`}
+      className={`p-3 sm:p-4 rounded-xl border-2 ${getTypeColor(panel.type)} hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1 text-left w-full`}
     >
+      {/* Header com ícone e nome */}
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center">
+        <div className="flex items-center min-w-0 flex-1 mr-2">
           {getTypeIcon(panel.type)}
-          <h3 className="font-semibold text-gray-800 ml-2 truncate">{panel.name}</h3>
+          <div className="ml-2 min-w-0 flex-1">
+            <h3 className="font-semibold text-gray-800 truncate text-sm sm:text-base">
+              {panel.name}
+            </h3>
+            <p className="text-xs text-gray-500">
+              {getTypeLabel(panel.type)}
+            </p>
+          </div>
         </div>
-        <span className="text-xs font-mono bg-white px-2 py-1 rounded">{panel.id}</span>
+        <span className="text-xs font-mono bg-white px-2 py-1 rounded text-gray-600 whitespace-nowrap">
+          {panel.id}
+        </span>
       </div>
       
-      <div className="space-y-1 text-sm text-gray-600">
-        <p>{panel.post_count || 0} mensagens</p>
-        <p>{panel.active_users || 0} usuários online</p>
-        <p className="text-xs">Último acesso: {formatDate(panel.last_access || panel.created_at)}</p>
+      {/* Estatísticas em grid responsivo */}
+      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mb-2">
+        <div className="flex items-center">
+          <span className="w-2 h-2 bg-blue-400 rounded-full mr-1"></span>
+          <span>{panel.post_count || 0} posts</span>
+        </div>
+        <div className="flex items-center">
+          <span className="w-2 h-2 bg-green-400 rounded-full mr-1"></span>
+          <span>{panel.active_users || 0} online</span>
+        </div>
+      </div>
+      
+      {/* Data do último acesso */}
+      <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
+        <span>Último acesso: {formatDate(panel.last_access || panel.created_at)}</span>
       </div>
     </button>
   );
@@ -903,7 +932,7 @@ if (selectedPanel) {
 if (currentScreen === 'my-panels') {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-50 to-pink-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-4xl w-full border border-gray-100">
+      <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-10 w-full max-w-6xl border border-gray-100">
         <button
           onClick={() => setCurrentScreen('home')}
           className="mb-6 text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-2 text-sm"
@@ -912,9 +941,9 @@ if (currentScreen === 'my-panels') {
           Voltar
         </button>
 
-        <div className="flex items-center justify-center mb-8">
-          <StickyNote className="w-12 h-12 text-slate-600 mr-3" />
-          <h1 className="text-4xl font-bold text-gray-800">Meus Murais</h1>
+        <div className="flex items-center justify-center mb-6 sm:mb-8">
+          <StickyNote className="w-8 h-8 sm:w-12 sm:h-12 text-slate-600 mr-2 sm:mr-3" />
+          <h1 className="text-2xl sm:text-4xl font-bold text-gray-800">Meus Murais</h1>
         </div>
 
         {loadingPanels ? (
@@ -929,7 +958,7 @@ if (currentScreen === 'my-panels') {
             <p className="text-gray-500">Crie um novo mural ou acesse um existente!</p>
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-4 sm:grid sm:gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 sm:space-y-0">
             {myPanels.map(panel => (
               <PanelCard 
                 key={panel.id} 
