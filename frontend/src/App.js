@@ -1002,7 +1002,7 @@ if (currentScreen === 'my-panels') {
   );
 };
 
-// Componente do Painel (Tela principal do mural) - Versão Mobile Responsiva
+// Componente do Painel (Tela principal do mural) - Com Zoom e Pan
 const PanelScreen = ({ panel, onBackToHome }) => {
   const { user, logout } = useUser();
   const [posts, setPosts] = useState([]);
@@ -1014,14 +1014,31 @@ const PanelScreen = ({ panel, onBackToHome }) => {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  
+  // Estados para zoom e pan
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [focusedPost, setFocusedPost] = useState(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const panelRef = useRef(null);
+  const panStart = useRef({ x: 0, y: 0 });
+  const lastPanPoint = useRef({ x: 0, y: 0 });
 
   const colors = getColors(panel.type);
   const userName = `${user?.firstName} ${user?.lastName}`;
 
-  // Detectar mobile e ajustar layout
+  // Detectar mobile e configurar zoom inicial
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth <= 768);
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      
+      if (mobile) {
+        // Em mobile, começar com zoom reduzido para mostrar mais área
+        setZoom(0.6);
+      } else {
+        setZoom(1);
+      }
     };
     
     checkMobile();
@@ -1030,26 +1047,149 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Funções de zoom e pan
+  const handleZoomIn = () => {
+    setZoom(prev => Math.min(prev * 1.2, 3));
+  };
+
+  const handleZoomOut = () => {
+    setZoom(prev => Math.max(prev / 1.2, 0.3));
+  };
+
+  const handleResetView = () => {
+    setZoom(isMobile ? 0.6 : 1);
+    setPan({ x: 0, y: 0 });
+    setFocusedPost(null);
+  };
+
+  const focusOnPost = (post) => {
+    if (focusedPost === post.id) {
+      // Se já está focado, desfoca
+      setFocusedPost(null);
+      handleResetView();
+      return;
+    }
+
+    setFocusedPost(post.id);
+    
+    if (isMobile) {
+      // Centralizar e dar zoom no post
+      const container = panelRef.current;
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const centerX = containerRect.width / 2;
+        const centerY = containerRect.height / 2;
+        
+        // Calcular nova posição para centralizar o post
+        const newPan = {
+          x: centerX - (post.position_x + 125) * 1.5, // 125 = metade da largura da nota
+          y: centerY - (post.position_y + 90) * 1.5   // 90 = metade da altura da nota
+        };
+        
+        setPan(newPan);
+        setZoom(1.5);
+      }
+    }
+  };
+
+  // Handlers de pan para mobile
+  const handlePanStart = (clientX, clientY) => {
+    if (!isMobile) return;
+    
+    setIsPanning(true);
+    panStart.current = { x: clientX, y: clientY };
+    lastPanPoint.current = { x: clientX, y: clientY };
+  };
+
+  const handlePanMove = (clientX, clientY) => {
+    if (!isPanning || !isMobile) return;
+    
+    const deltaX = clientX - lastPanPoint.current.x;
+    const deltaY = clientY - lastPanPoint.current.y;
+    
+    setPan(prev => ({
+      x: prev.x + deltaX,
+      y: prev.y + deltaY
+    }));
+    
+    lastPanPoint.current = { x: clientX, y: clientY };
+  };
+
+  const handlePanEnd = () => {
+    setIsPanning(false);
+  };
+
+  // Event listeners para pan
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const handleTouchStart = (e) => {
+      if (e.touches.length === 1 && e.target === panelRef.current) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handlePanStart(touch.clientX, touch.clientY);
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      if (e.touches.length === 1 && isPanning) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handlePanMove(touch.clientX, touch.clientY);
+      }
+    };
+
+    const handleTouchEnd = () => {
+      handlePanEnd();
+    };
+
+    const handleMouseDown = (e) => {
+      if (e.target === panelRef.current) {
+        handlePanStart(e.clientX, e.clientY);
+      }
+    };
+
+    const handleMouseMove = (e) => {
+      if (isPanning) {
+        e.preventDefault();
+        handlePanMove(e.clientX, e.clientY);
+      }
+    };
+
+    const handleMouseUp = () => {
+      handlePanEnd();
+    };
+
+    const panel = panelRef.current;
+    if (panel) {
+      // Touch events
+      panel.addEventListener('touchstart', handleTouchStart, { passive: false });
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd);
+      
+      // Mouse events para desktop
+      panel.addEventListener('mousedown', handleMouseDown);
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+
+      return () => {
+        panel.removeEventListener('touchstart', handleTouchStart);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        panel.removeEventListener('mousedown', handleMouseDown);
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isMobile, isPanning]);
+
   // Carregar dados iniciais
   useEffect(() => {
     const loadInitialData = async () => {
       try {
         setIsLoading(true);
         const postsData = await apiService.getPanelPosts(panel.id);
-        
-        // Ajustar posições dos posts para mobile se necessário
-        const adjustedPosts = postsData.map(post => {
-          if (isMobile) {
-            return {
-              ...post,
-              position_x: Math.min(post.position_x || 50, window.innerWidth - 240),
-              position_y: Math.min(post.position_y || 50, window.innerHeight - 200)
-            };
-          }
-          return post;
-        });
-        
-        setPosts(adjustedPosts);
+        setPosts(postsData);
       } catch (err) {
         setError('Erro ao carregar dados');
       } finally {
@@ -1058,7 +1198,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     };
 
     loadInitialData();
-  }, [panel.id, isMobile]);
+  }, [panel.id]);
 
   // Handlers de WebSocket
   const handleNewPost = useCallback((post) => {
@@ -1071,7 +1211,12 @@ const PanelScreen = ({ panel, onBackToHome }) => {
 
   const handlePostDeleted = useCallback(({ postId }) => {
     setPosts(prev => prev.filter(p => p.id !== postId));
-  }, []);
+    // Se o post focado foi deletado, resetar view
+    if (focusedPost === postId) {
+      setFocusedPost(null);
+      handleResetView();
+    }
+  }, [focusedPost]);
 
   const handleUserJoined = useCallback(({ userName, userId: joinedUserId }) => {
     setActiveUsers(prev => {
@@ -1101,23 +1246,30 @@ const PanelScreen = ({ panel, onBackToHome }) => {
 
   const handleCreatePost = useCallback(async (postData) => {
     try {
-      // Posição aleatória ajustada para mobile
-      const maxX = isMobile ? window.innerWidth - 240 : 600;
-      const maxY = isMobile ? window.innerHeight - 300 : 300;
+      // Área expandida para colocação de posts baseada no zoom e pan atual
+      const maxX = isMobile ? 1200 : 800; // Área muito maior
+      const maxY = isMobile ? 1000 : 600;
+      
+      // Considerar a posição atual da view para colocar posts próximos ao centro visível
+      const viewCenterX = (-pan.x / zoom) + (window.innerWidth / 2 / zoom);
+      const viewCenterY = (-pan.y / zoom) + (window.innerHeight / 2 / zoom);
+      
+      const randomX = Math.max(50, Math.min(viewCenterX + (Math.random() - 0.5) * 400, maxX));
+      const randomY = Math.max(100, Math.min(viewCenterY + (Math.random() - 0.5) * 300, maxY));
       
       await apiService.createPost(panel.id, {
         content: postData.content,
         color: postData.color,
         author_name: postData.anonymous ? null : userName,
-        position_x: Math.floor(Math.random() * maxX) + 20,
-        position_y: Math.floor(Math.random() * maxY) + (isMobile ? 120 : 80)
+        position_x: randomX,
+        position_y: randomY
       });
       
       setShowNewPostForm(false);
     } catch (err) {
       setError(err.message);
     }
-  }, [panel.id, userName, isMobile]);
+  }, [panel.id, userName, zoom, pan, isMobile]);
 
   const handleDeletePost = useCallback(async (postId) => {
     try {
@@ -1145,6 +1297,8 @@ const PanelScreen = ({ panel, onBackToHome }) => {
       await apiService.leavePanel(panel.id);
       console.log('✅ Saída realizada com sucesso');
       
+      setShowLeaveModal(false);
+      
       if (onBackToHome) {
         onBackToHome();
       } else {
@@ -1165,9 +1319,9 @@ const PanelScreen = ({ panel, onBackToHome }) => {
       className="min-h-screen relative overflow-hidden"
       style={{ backgroundColor: panel.background_color }}
     >
-      {/* Textura de mural - padrão de cortiça */}
+      {/* Textura de mural */}
       <div 
-        className="absolute inset-0 opacity-20"
+        className="absolute inset-0 opacity-20 pointer-events-none"
         style={{
           backgroundImage: `radial-gradient(circle at 20% 50%, #8B4513 1px, transparent 1px),
                            radial-gradient(circle at 80% 50%, #A0522D 1px, transparent 1px),
@@ -1187,9 +1341,8 @@ const PanelScreen = ({ panel, onBackToHome }) => {
           }}
         >
           {isMobile ? (
-            // Layout mobile - compacto
+            // Layout mobile com controles de zoom
             <div className="space-y-2">
-              {/* Primeira linha - título e código */}
               <div className="flex items-center justify-between">
                 <h1 className="text-sm font-bold text-gray-800 truncate flex-1 mr-2">
                   {panel.name}
@@ -1199,7 +1352,6 @@ const PanelScreen = ({ panel, onBackToHome }) => {
                 </span>
               </div>
               
-              {/* Segunda linha - botões */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
                   <button
@@ -1293,28 +1445,83 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         </div>
       </div>
 
-      {/* Área do Mural */}
-      <div className={`relative min-h-screen ${isMobile ? 'pt-20 pb-4 px-2' : 'pt-24 pb-8 px-8'}`}>
-        {posts.map(post => (
-          <PostIt
-            key={post.id}
-            post={post}
-            onDelete={handleDeletePost}
-            onMove={handleMovePost}
-            currentUserId={user?.id}
-            canDelete={true}
-          />
-        ))}
-        
-        {posts.length === 0 && (
-          <div className={`text-center text-gray-500 bg-white bg-opacity-70 rounded-xl mx-auto max-w-md ${
-            isMobile ? 'mt-10 p-6' : 'mt-20 p-8'
-          }`}>
-            <StickyNote className={`mx-auto mb-4 opacity-50 ${isMobile ? 'w-12 h-12' : 'w-16 h-16'}`} />
-            <p className={`${isMobile ? 'text-base' : 'text-lg'}`}>Seu mural está vazio</p>
-            <p className={`${isMobile ? 'text-sm' : 'text-sm'}`}>Clique em "Nova Nota" para começar!</p>
+      {/* Controles de Zoom para Mobile */}
+      {isMobile && (
+        <div className="fixed bottom-20 left-4 z-40 flex flex-col gap-2">
+          <button
+            onClick={handleZoomIn}
+            className="w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+            disabled={zoom >= 3}
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+          
+          <button
+            onClick={handleZoomOut}
+            className="w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+            disabled={zoom <= 0.3}
+          >
+            <span className="text-2xl font-bold">−</span>
+          </button>
+          
+          <button
+            onClick={handleResetView}
+            className="w-12 h-12 bg-gray-600 text-white rounded-full shadow-lg hover:bg-gray-700 transition-colors flex items-center justify-center text-xs font-bold"
+          >
+            ⌂
+          </button>
+          
+          <div className="bg-black bg-opacity-50 text-white px-2 py-1 rounded text-xs text-center">
+            {Math.round(zoom * 100)}%
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Área do Mural com Zoom e Pan */}
+      <div 
+        ref={panelRef}
+        className={`relative min-h-screen overflow-hidden ${isMobile ? 'pt-20 pb-4' : 'pt-24 pb-8'}`}
+        style={{
+          cursor: isPanning ? 'grabbing' : (isMobile ? 'grab' : 'default'),
+          touchAction: 'none'
+        }}
+      >
+        <div
+          className="relative origin-top-left transition-transform duration-200"
+          style={{
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            width: '2000px', // Área muito maior para o mural
+            height: '1500px',
+            minWidth: '100vw',
+            minHeight: '100vh'
+          }}
+        >
+          {posts.map(post => (
+            <div
+              key={post.id}
+              onClick={() => focusOnPost(post)}
+              className={`${focusedPost === post.id ? 'ring-4 ring-blue-400 ring-opacity-75' : ''}`}
+            >
+              <PostIt
+                post={post}
+                onDelete={handleDeletePost}
+                onMove={handleMovePost}
+                currentUserId={user?.id}
+                canDelete={true}
+                zoom={zoom}
+                isMobile={isMobile}
+              />
+            </div>
+          ))}
+          
+          {posts.length === 0 && (
+            <div className="absolute top-1/4 left-1/2 transform -translate-x-1/2 text-center text-gray-500 bg-white bg-opacity-70 rounded-xl max-w-md p-8">
+              <StickyNote className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <p className="text-lg">Seu mural está vazio</p>
+              <p className="text-sm">Clique em "Nova Nota" para começar!</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Botão flutuante para nova nota no mobile */}
@@ -1325,6 +1532,13 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         >
           <Plus className="w-6 h-6" />
         </button>
+      )}
+
+      {/* Dica de uso para mobile */}
+      {isMobile && posts.length > 0 && !focusedPost && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-50 text-white px-4 py-2 rounded-lg text-sm pointer-events-none z-30">
+          💡 Toque em uma nota para focar nela
+        </div>
       )}
 
       {/* Modal de Nova Nota */}
@@ -1338,16 +1552,46 @@ const PanelScreen = ({ panel, onBackToHome }) => {
       )}
 
       {/* Modal de Compartilhamento */}
-<ShareModal 
-  panel={panel}
-  isOpen={showShareModal} 
-  onClose={() => setShowShareModal(false)}
-  isMobile={isMobile}
-/>
+      <ShareModal 
+        panel={panel}
+        isOpen={showShareModal} 
+        onClose={() => setShowShareModal(false)}
+        isMobile={isMobile}
+      />
+
+      {/* Modal de Confirmação de Saída */}
+      {showLeaveModal && (
+        <Modal isOpen={showLeaveModal} onClose={() => setShowLeaveModal(false)} title="Sair do Mural">
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-6xl mb-4">🚪</div>
+              <p className="text-lg text-gray-800 mb-2">Tem certeza que deseja sair deste mural?</p>
+              <p className="text-sm text-gray-600">
+                Você precisará do código <strong>{panel.id}</strong> para entrar novamente.
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLeaveModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleLeavePanel}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+              >
+                Sair do Mural
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Toast de Erro */}
       {error && (
-        <div className={`fixed ${isMobile ? 'bottom-20 left-4 right-4' : 'bottom-4 right-4'} bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50`}>
+        <div className={`fixed ${isMobile ? 'bottom-32 left-4 right-4' : 'bottom-4 right-4'} bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50`}>
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
             {error}
@@ -1363,9 +1607,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     </div>
   );
 };
-// frontend/src/App.js - SUBSTITUIR o Modal de Compartilhamento por este componente
 
-// frontend/src/App.js - SUBSTITUIR o componente ShareModal por este:
 
 const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
   const [copied, setCopied] = useState(false);
