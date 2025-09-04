@@ -392,6 +392,7 @@ const AuthScreen = () => {
 };
 
 // Card de Painel para "Meus Murais" - Versão Responsiva
+// Card de Painel para "Meus Murais" - Com Notificações
 const PanelCard = ({ panel, onSelectPanel }) => {
   const getTypeIcon = (type) => {
     switch (type) {
@@ -402,10 +403,21 @@ const PanelCard = ({ panel, onSelectPanel }) => {
   };
 
   const getTypeColor = (type) => {
+    const hasNotifications = panel.unread_count > 0;
+    
     switch (type) {
-      case 'couple': return 'border-rose-200 bg-rose-50 hover:bg-rose-100';
-      case 'family': return 'border-green-200 bg-green-50 hover:bg-green-100';
-      default: return 'border-blue-200 bg-blue-50 hover:bg-blue-100';
+      case 'couple': 
+        return hasNotifications 
+          ? 'border-rose-300 bg-rose-100 hover:bg-rose-150 ring-2 ring-rose-200' 
+          : 'border-rose-200 bg-rose-50 hover:bg-rose-100';
+      case 'family': 
+        return hasNotifications 
+          ? 'border-green-300 bg-green-100 hover:bg-green-150 ring-2 ring-green-200' 
+          : 'border-green-200 bg-green-50 hover:bg-green-100';
+      default: 
+        return hasNotifications 
+          ? 'border-blue-300 bg-blue-100 hover:bg-blue-150 ring-2 ring-blue-200' 
+          : 'border-blue-200 bg-blue-50 hover:bg-blue-100';
     }
   };
 
@@ -425,17 +437,50 @@ const PanelCard = ({ panel, onSelectPanel }) => {
     });
   };
 
+  const formatLastMessage = (message) => {
+    if (!message) return null;
+    return message.length > 40 ? `${message.substring(0, 40)}...` : message;
+  };
+
+  const getTimeAgo = (date) => {
+    if (!date) return '';
+    
+    const now = new Date();
+    const messageDate = new Date(date);
+    const diffMs = now - messageDate;
+    const diffMinutes = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMinutes / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffMinutes < 1) return 'agora';
+    if (diffMinutes < 60) return `${diffMinutes}min`;
+    if (diffHours < 24) return `${diffHours}h`;
+    if (diffDays < 7) return `${diffDays}d`;
+    return formatDate(date);
+  };
+
   return (
     <button
       onClick={() => onSelectPanel(panel)}
-      className={`p-3 sm:p-4 rounded-xl border-2 ${getTypeColor(panel.type)} hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1 text-left w-full`}
+      className={`relative p-3 sm:p-4 rounded-xl border-2 ${getTypeColor(panel.type)} hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1 text-left w-full`}
     >
+      {/* Badge de notificação */}
+      {panel.unread_count > 0 && (
+        <div className="absolute -top-2 -right-2 z-10">
+          <div className="bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1 shadow-lg animate-pulse">
+            {panel.unread_count > 99 ? '99+' : panel.unread_count}
+          </div>
+        </div>
+      )}
+
       {/* Header com ícone e nome */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center min-w-0 flex-1 mr-2">
           {getTypeIcon(panel.type)}
           <div className="ml-2 min-w-0 flex-1">
-            <h3 className="font-semibold text-gray-800 truncate text-sm sm:text-base">
+            <h3 className={`font-semibold text-gray-800 truncate text-sm sm:text-base ${
+              panel.unread_count > 0 ? 'font-bold' : ''
+            }`}>
               {panel.name}
             </h3>
             <p className="text-xs text-gray-500">
@@ -448,6 +493,25 @@ const PanelCard = ({ panel, onSelectPanel }) => {
         </span>
       </div>
       
+      {/* Última mensagem (se existir) */}
+      {panel.last_message && (
+        <div className="mb-3 p-2 bg-white bg-opacity-50 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-gray-700">
+              {panel.last_message_author}
+            </span>
+            <span className="text-xs text-gray-500">
+              {getTimeAgo(panel.last_message_date)}
+            </span>
+          </div>
+          <p className={`text-xs text-gray-600 ${
+            panel.unread_count > 0 ? 'font-medium' : ''
+          }`}>
+            {formatLastMessage(panel.last_message)}
+          </p>
+        </div>
+      )}
+      
       {/* Estatísticas em grid responsivo */}
       <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mb-2">
         <div className="flex items-center">
@@ -455,14 +519,24 @@ const PanelCard = ({ panel, onSelectPanel }) => {
           <span>{panel.post_count || 0} posts</span>
         </div>
         <div className="flex items-center">
-          <span className="w-2 h-2 bg-green-400 rounded-full mr-1"></span>
+          <span className={`w-2 h-2 rounded-full mr-1 ${
+            panel.active_users > 0 ? 'bg-green-400' : 'bg-gray-400'
+          }`}></span>
           <span>{panel.active_users || 0} online</span>
         </div>
       </div>
       
       {/* Data do último acesso */}
       <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
-        <span>Último acesso: {formatDate(panel.last_access || panel.created_at)}</span>
+        <div className="flex items-center justify-between">
+          <span>Último acesso: {formatDate(panel.last_access || panel.created_at)}</span>
+          {panel.unread_count > 0 && (
+            <span className="text-red-600 font-medium flex items-center">
+              <span className="w-2 h-2 bg-red-500 rounded-full mr-1 animate-pulse"></span>
+              {panel.unread_count} nova{panel.unread_count !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
       </div>
     </button>
   );

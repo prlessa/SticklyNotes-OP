@@ -348,31 +348,67 @@ router.get('/me', authenticateToken, async (req, res) => {
 
 /**
  * GET /api/auth/my-panels
- * Busca painéis que o usuário participa
+ * Busca painéis que o usuário participa com informações de notificação
  */
 router.get('/my-panels', authenticateToken, async (req, res) => {
   try {
     console.log('🔍 Buscando painéis para usuário:', req.user.userId);
 
-    // APENAS painéis onde o usuário AINDA É PARTICIPANTE
+    // APENAS painéis onde o usuário AINDA É PARTICIPANTE com info de mensagens novas
     const participantPanels = await db.query(`
       SELECT DISTINCT
         p.id, p.name, p.type, p.background_color, 
         p.created_at, p.last_activity,
         pp.last_access,
         (SELECT COUNT(*)::INTEGER FROM posts WHERE panel_id = p.id) as post_count,
-        (SELECT COUNT(*)::INTEGER FROM active_users WHERE panel_id = p.id AND last_seen > NOW() - INTERVAL '10 minutes') as active_users
+        (SELECT COUNT(*)::INTEGER FROM active_users WHERE panel_id = p.id AND last_seen > NOW() - INTERVAL '10 minutes') as active_users,
+        -- Contar mensagens novas desde o último acesso
+        (SELECT COUNT(*)::INTEGER 
+         FROM posts 
+         WHERE panel_id = p.id 
+           AND created_at > COALESCE(pp.last_access, pp.joined_at)
+           AND author_user_id != $1  -- Excluir próprias mensagens
+        ) as unread_count,
+        -- Última mensagem do painel
+        (SELECT content 
+         FROM posts 
+         WHERE panel_id = p.id 
+         ORDER BY created_at DESC 
+         LIMIT 1
+        ) as last_message,
+        -- Autor da última mensagem
+        (SELECT COALESCE(author_name, 'Anônimo')
+         FROM posts 
+         WHERE panel_id = p.id 
+         ORDER BY created_at DESC 
+         LIMIT 1
+        ) as last_message_author,
+        -- Data da última mensagem
+        (SELECT created_at
+         FROM posts 
+         WHERE panel_id = p.id 
+         ORDER BY created_at DESC 
+         LIMIT 1
+        ) as last_message_date
       FROM panels p
       INNER JOIN panel_participants pp ON p.id = pp.panel_id
       WHERE pp.user_uuid = $1
-      ORDER BY pp.last_access DESC, p.created_at DESC
+      ORDER BY 
+        -- Priorizar painéis com mensagens não lidas
+        (SELECT COUNT(*) FROM posts WHERE panel_id = p.id AND created_at > COALESCE(pp.last_access, pp.joined_at) AND author_user_id != $1) DESC,
+        pp.last_access DESC, 
+        p.created_at DESC
     `, [req.user.userId]);
 
     console.log('📋 Painéis encontrados:', participantPanels.rows.length);
 
-    // Log para debug
+    // Log para debug das notificações
     participantPanels.rows.forEach(panel => {
-      console.log(`   - ${panel.id}: ${panel.name} (${panel.type})`);
+      if (panel.unread_count > 0) {
+        console.log(`   📬 ${panel.id}: ${panel.name} - ${panel.unread_count} mensagens novas`);
+      } else {
+        console.log(`   📭 ${panel.id}: ${panel.name} - sem mensagens novas`);
+      }
     });
 
     res.json(participantPanels.rows);

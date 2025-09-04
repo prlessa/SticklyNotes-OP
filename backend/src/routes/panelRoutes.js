@@ -98,10 +98,10 @@ router.get('/link/:code', authenticateToken,
         });
       }
       
-      // Adicionar/atualizar como participante
+ // Adicionar/atualizar como participante e MARCAR COMO LIDO
       await db.query(`
-        INSERT INTO panel_participants (panel_id, user_id, username, user_uuid)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO panel_participants (panel_id, user_id, username, user_uuid, last_access)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
         ON CONFLICT (panel_id, user_uuid) 
         DO UPDATE SET 
           username = $3,
@@ -507,10 +507,10 @@ router.post('/:code', authenticateToken,
         });
       }
       
-      // Adicionar/atualizar como participante
+// Adicionar/atualizar como participante e MARCAR COMO LIDO
       await db.query(`
-        INSERT INTO panel_participants (panel_id, user_id, username, user_uuid)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO panel_participants (panel_id, user_id, username, user_uuid, last_access)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
         ON CONFLICT (panel_id, user_uuid) 
         DO UPDATE SET 
           username = $3,
