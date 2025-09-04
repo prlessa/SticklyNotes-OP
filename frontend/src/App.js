@@ -1445,33 +1445,34 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         </div>
       </div>
 
-      {/* Controles de Zoom para Mobile */}
+{/* Controles de Zoom para Mobile - Visual Neutro */}
       {isMobile && (
         <div className="fixed bottom-20 left-4 z-40 flex flex-col gap-2">
           <button
             onClick={handleZoomIn}
-            className="w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+            className="w-10 h-10 bg-gray-500 text-white rounded-lg shadow-md hover:bg-gray-600 transition-colors flex items-center justify-center border border-gray-600"
             disabled={zoom >= 3}
           >
-            <Plus className="w-6 h-6" />
+            <span className="text-lg font-bold leading-none">+</span>
           </button>
           
           <button
             onClick={handleZoomOut}
-            className="w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+            className="w-10 h-10 bg-gray-500 text-white rounded-lg shadow-md hover:bg-gray-600 transition-colors flex items-center justify-center border border-gray-600"
             disabled={zoom <= 0.3}
           >
-            <span className="text-2xl font-bold">−</span>
+            <span className="text-lg font-bold leading-none">−</span>
           </button>
           
           <button
             onClick={handleResetView}
-            className="w-12 h-12 bg-gray-600 text-white rounded-full shadow-lg hover:bg-gray-700 transition-colors flex items-center justify-center text-xs font-bold"
+            className="w-10 h-10 bg-gray-600 text-white rounded-lg shadow-md hover:bg-gray-700 transition-colors flex items-center justify-center text-xs font-bold border border-gray-700"
+            title="Resetar visualização"
           >
             ⌂
           </button>
           
-          <div className="bg-black bg-opacity-50 text-white px-2 py-1 rounded text-xs text-center">
+          <div className="bg-black bg-opacity-50 text-white px-2 py-1 rounded text-xs text-center mt-1">
             {Math.round(zoom * 100)}%
           </div>
         </div>
@@ -1524,23 +1525,27 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         </div>
       </div>
 
-      {/* Botão flutuante para nova nota no mobile */}
+      {/* Botão flutuante para nova nota no mobile - Ícone Stickly Notes */}
       {isMobile && (
         <button
           onClick={() => setShowNewPostForm(true)}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center z-40"
+          className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-yellow-400 to-yellow-500 text-gray-800 rounded-2xl shadow-xl hover:shadow-2xl hover:scale-105 transition-all duration-200 flex items-center justify-center z-40 border-2 border-yellow-300"
+          style={{
+            background: 'linear-gradient(135deg, #FEF08A 0%, #FDE047 50%, #FACC15 100%)',
+          }}
         >
-          <Plus className="w-6 h-6" />
+          <div className="relative">
+            {/* Ícone de nota adesiva */}
+            <div className="w-8 h-8 bg-yellow-200 rounded-sm transform rotate-3 absolute -top-1 -left-1 opacity-60"></div>
+            <div className="w-8 h-8 bg-yellow-100 rounded-sm flex items-center justify-center">
+              <span className="text-gray-700 font-bold text-lg">+</span>
+            </div>
+            {/* Fita adesiva pequena */}
+            <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-4 h-2 bg-yellow-200 opacity-70 rounded-sm"></div>
+          </div>
         </button>
       )}
-
-      {/* Dica de uso para mobile */}
-      {isMobile && posts.length > 0 && !focusedPost && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-50 text-white px-4 py-2 rounded-lg text-sm pointer-events-none z-30">
-          💡 Toque em uma nota para focar nela
-        </div>
-      )}
-
+      
       {/* Modal de Nova Nota */}
       {showNewPostForm && (
         <NewPostForm
