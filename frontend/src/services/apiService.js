@@ -268,7 +268,49 @@ class ApiService {
   }
 
   async updatePostPosition(postId, positionData) {
-    return this.patch(`/api/posts/${postId}/position`, positionData);
+    console.log('📡 API updatePostPosition - Recebendo dados:', {
+      postId,
+      positionData
+    });
+    
+    // Validações rigorosas
+    if (!postId || typeof postId !== 'string') {
+      throw new Error('ID do post inválido');
+    }
+    
+    if (!positionData.panel_id || typeof positionData.panel_id !== 'string' || positionData.panel_id.length !== 6) {
+      throw new Error('ID do painel inválido');
+    }
+    
+    if (typeof positionData.position_x !== 'number' || isNaN(positionData.position_x)) {
+      throw new Error('Posição X inválida');
+    }
+    
+    if (typeof positionData.position_y !== 'number' || isNaN(positionData.position_y)) {
+      throw new Error('Posição Y inválida');
+    }
+    
+    // Garantir que as posições sejam números inteiros válidos
+    const payload = {
+      position_x: Math.round(Math.max(0, Math.min(2000, positionData.position_x))),
+      position_y: Math.round(Math.max(0, Math.min(1500, positionData.position_y))),
+      panel_id: positionData.panel_id.toUpperCase()
+    };
+    
+    console.log('📡 API updatePostPosition - Payload final:', payload);
+    
+    try {
+      const result = await this.patch(`/api/posts/${postId}/position`, payload);
+      console.log('✅ API updatePostPosition - Sucesso:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ API updatePostPosition - Erro:', {
+        error: error.message,
+        postId,
+        payload
+      });
+      throw error;
+    }
   }
 
   async deletePost(postId, params) {

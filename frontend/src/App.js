@@ -1325,15 +1325,48 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     }
   }, [panel.id]);
 
-  const handleMovePost = useCallback(async (postId, x, y) => {
+const handleMovePost = useCallback(async (postId, x, y) => {
     try {
+      console.log('🔄 handleMovePost - Iniciando:', {
+        postId,
+        x,
+        y,
+        panelId: panel.id
+      });
+      
+      // Validações básicas
+      if (!postId) {
+        throw new Error('ID do post não fornecido');
+      }
+      
+      if (!panel.id) {
+        throw new Error('ID do painel não disponível');
+      }
+      
+      if (typeof x !== 'number' || typeof y !== 'number' || isNaN(x) || isNaN(y)) {
+        throw new Error('Posições inválidas');
+      }
+      
+      // Limitar posições dentro dos limites do mural
+      const limitedX = Math.max(0, Math.min(2000 - 250, x)); // 250 = largura da nota
+      const limitedY = Math.max(0, Math.min(1500 - 180, y)); // 180 = altura da nota
+      
       await apiService.updatePostPosition(postId, {
-        position_x: x,
-        position_y: y,
+        position_x: limitedX,
+        position_y: limitedY,
         panel_id: panel.id
       });
+      
+      console.log('✅ handleMovePost - Sucesso');
     } catch (err) {
-      setError(err.message);
+      console.error('❌ handleMovePost - Erro:', {
+        message: err.message,
+        postId,
+        x,
+        y,
+        panelId: panel.id
+      });
+      setError(`Erro ao mover nota: ${err.message}`);
     }
   }, [panel.id]);
 

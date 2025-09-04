@@ -89,10 +89,15 @@ export function PostIt({ post, onDelete, onMove, canDelete, currentUserId, zoom 
       handleMove(touch.clientX, touch.clientY);
     };
 
-    const handleEnd = () => {
+const handleEnd = () => {
       if (isDragging) {
         setIsDragging(false);
         if (onMove) {
+          console.log('📍 PostIt - Chamando onMove:', {
+            postId: post.id,
+            x: position.x,
+            y: position.y
+          });
           onMove(post.id, position.x, position.y);
         }
       }
