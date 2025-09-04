@@ -1,6 +1,6 @@
 /**
- * Rotas para gerenciamento de painéis - Versão atualizada
- * Suporte a autenticação e tipo família
+ * Rotas para gerenciamento de painéis - Versão corrigida
+ * ADICIONADA: Rota específica para acesso via link
  */
 
 const express = require('express');
@@ -11,7 +11,12 @@ const { validatePanelCreation } = require('../utils/validators');
 const { generatePanelCode, hashPassword, verifyPassword } = require('../utils/security');
 const config = require('../config/config');
 const logger = require('../utils/logger');
-
+const { 
+  linkAccessRateLimiter, 
+  panelCreationLimiter, 
+  panelAccessLimiter, 
+  postCreationLimiter 
+} = require('../utils/rateLimiters');
 const router = express.Router();
 
 /**
@@ -27,6 +32,105 @@ const handleValidationErrors = (req, res, next) => {
   }
   next();
 };
+
+/**
+ * NOVA ROTA: GET /api/panels/link/:code
+ * Acessa um painel via link direto (para usuários autenticados)
+ * Esta rota NÃO requer senha - é usada para links de convite
+ */
+router.get('/link/:code', authenticateToken,
+  [
+    param('code')
+      .isLength({ min: 6, max: 6 })
+      .isAlphanumeric()
+      .withMessage('Código inválido')
+  ],
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { code } = req.params;
+      const userId = req.user.userId;
+      const upperCode = code.toUpperCase();
+      
+      console.log(`🔗 Acesso via link - Código: ${upperCode}, Usuário: ${userId}`);
+      
+      // Buscar dados do usuário
+      const userResult = await db.query(
+        'SELECT first_name, last_name FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Usuário não encontrado' });
+      }
+
+      const user = userResult.rows[0];
+      const userName = `${user.first_name} ${user.last_name}`;
+      
+      // Tentar obter do cache primeiro
+      let panel = await cache.getCachedPanel(upperCode);
+      
+      if (!panel) {
+        // Buscar no banco se não estiver em cache
+        const result = await db.query(
+          'SELECT * FROM panels WHERE id = $1',
+          [upperCode]
+        );
+        
+        if (result.rows.length === 0) {
+          console.log(`⚠️ Painel não encontrado: ${upperCode}`);
+          return res.status(404).json({ 
+            error: 'Painel não encontrado ou link expirado' 
+          });
+        }
+        
+        panel = result.rows[0];
+      }
+      
+      // Verificar limite de usuários
+      const activeCount = await getActiveUserCount(upperCode);
+      const isUserAlreadyActive = await isUserActive(upperCode, userId);
+      
+      if (!isUserAlreadyActive && activeCount >= panel.max_users) {
+        console.log(`⚠️ Painel lotado: ${upperCode} (${activeCount}/${panel.max_users})`);
+        return res.status(403).json({ 
+          error: `Painel lotado (máximo ${panel.max_users} usuários)` 
+        });
+      }
+      
+      // Adicionar/atualizar como participante
+      await db.query(`
+        INSERT INTO panel_participants (panel_id, user_id, username, user_uuid)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (panel_id, user_uuid) 
+        DO UPDATE SET 
+          username = $3,
+          last_access = CURRENT_TIMESTAMP
+      `, [upperCode, `user_${userId}`, userName, userId]);
+      
+      // Atualizar última atividade do painel
+      await db.query(
+        'UPDATE panels SET last_activity = CURRENT_TIMESTAMP WHERE id = $1',
+        [upperCode]
+      );
+      
+      // Cachear painel (sem senha)
+      const safePanel = { ...panel };
+      delete safePanel.password_hash;
+      await cache.cachePanel(upperCode, safePanel);
+      
+      console.log(`✅ Acesso via link bem-sucedido: ${upperCode} por ${userName}`);
+      
+      res.json(safePanel);
+      
+    } catch (error) {
+      console.error('❌ Erro no acesso via link:', error);
+      res.status(500).json({ 
+        error: 'Erro interno do servidor' 
+      });
+    }
+  }
+);
 
 /**
  * GET /api/panels/:code/posts
@@ -319,7 +423,7 @@ router.post('/', authenticateToken,
 
 /**
  * POST /api/panels/:code
- * Acessa um painel existente (requer autenticação)
+ * Acessa um painel existente (requer autenticação e possivelmente senha)
  */
 router.post('/:code', authenticateToken,
   [

@@ -13,6 +13,7 @@ import {
   LIMITS, ERROR_MESSAGES 
 } from './constants/config';
 
+
 // Sistema de roteamento simples
 const useSimpleRouter = () => {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
