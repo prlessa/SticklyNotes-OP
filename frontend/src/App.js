@@ -104,16 +104,29 @@ const NewPostForm = ({ onSubmit, onCancel, colors, userName }) => {
   const [color, setColor] = useState(colors.notes[0]);
   const [anonymous, setAnonymous] = useState(false);
 
-  const handleSubmit = useCallback((e) => {
+const handleSubmit = useCallback((e) => {
     e.preventDefault();
-    if (!content.trim()) return;
+    
+    const trimmedContent = content.trim();
+    
+    if (!trimmedContent) {
+      console.warn('⚠️ Conteúdo vazio, não enviando');
+      return;
+    }
 
-    onSubmit({
-      content: content.trim(),
+    console.log('📝 NewPostForm - Enviando dados:', {
+      content: trimmedContent,
       color,
       anonymous
     });
 
+    onSubmit({
+      content: trimmedContent,
+      color,
+      anonymous
+    });
+
+    // Reset form
     setContent('');
     setAnonymous(false);
   }, [content, color, anonymous, onSubmit]);
@@ -1246,6 +1259,8 @@ const PanelScreen = ({ panel, onBackToHome }) => {
 
   const handleCreatePost = useCallback(async (postData) => {
     try {
+      console.log('🔍 Debug - Dados recebidos do formulário:', postData);
+      
       // Área expandida para colocação de posts baseada no zoom e pan atual
       const maxX = isMobile ? 1200 : 800; // Área muito maior
       const maxY = isMobile ? 1000 : 600;
@@ -1257,19 +1272,50 @@ const PanelScreen = ({ panel, onBackToHome }) => {
       const randomX = Math.max(50, Math.min(viewCenterX + (Math.random() - 0.5) * 400, maxX));
       const randomY = Math.max(100, Math.min(viewCenterY + (Math.random() - 0.5) * 300, maxY));
       
-      await apiService.createPost(panel.id, {
-        content: postData.content,
-        color: postData.color,
-        author_name: postData.anonymous ? null : userName,
-        position_x: randomX,
-        position_y: randomY
+      // Estrutura correta dos dados para enviar
+      const postPayload = {
+        content: postData.content?.trim(),
+        color: postData.color || colors.notes[0],
+        anonymous: Boolean(postData.anonymous),
+        position_x: Math.round(randomX),
+        position_y: Math.round(randomY)
+      };
+      
+      console.log('🚀 Debug - Dados que serão enviados:', {
+        panelId: panel.id,
+        payload: postPayload,
+        userName,
+        anonymous: postData.anonymous
       });
       
+      // Validações básicas no frontend
+      if (!postPayload.content || postPayload.content.length === 0) {
+        throw new Error('Conteúdo da nota não pode estar vazio');
+      }
+      
+      if (postPayload.content.length > 1000) {
+        throw new Error('Conteúdo da nota é muito longo (máximo 1000 caracteres)');
+      }
+      
+      if (!panel.id || panel.id.length !== 6) {
+        throw new Error('ID do painel inválido');
+      }
+      
+      await apiService.createPost(panel.id, postPayload);
+      
+      console.log('✅ Post criado com sucesso');
       setShowNewPostForm(false);
     } catch (err) {
+      console.error('❌ Erro detalhado ao criar post:', {
+        message: err.message,
+        stack: err.stack,
+        panelId: panel.id,
+        postData,
+        userName
+      });
       setError(err.message);
     }
-  }, [panel.id, userName, zoom, pan, isMobile]);
+  }, [panel.id, userName, zoom, pan, isMobile, colors.notes]);
 
   const handleDeletePost = useCallback(async (postId) => {
     try {
@@ -1545,7 +1591,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
           </div>
         </button>
       )}
-      
+
       {/* Modal de Nova Nota */}
       {showNewPostForm && (
         <NewPostForm

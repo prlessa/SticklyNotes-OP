@@ -222,17 +222,49 @@ class ApiService {
   }
 
   async createPost(panelId, postData) {
-    // Se anonymous for true, não enviar author_name
-    // Se anonymous for false, o backend usará os dados do usuário logado
+    console.log('📡 API createPost - Recebendo dados:', {
+      panelId,
+      postData
+    });
+    
+    // Validações rigorosas antes de enviar
+    if (!panelId || typeof panelId !== 'string' || panelId.length !== 6) {
+      throw new Error('ID do painel inválido');
+    }
+    
+    if (!postData.content || typeof postData.content !== 'string' || postData.content.trim().length === 0) {
+      throw new Error('Conteúdo é obrigatório');
+    }
+    
+    if (postData.content.length > 1000) {
+      throw new Error('Conteúdo muito longo (máximo 1000 caracteres)');
+    }
+    
+    // Estruturar payload conforme esperado pelo backend
     const payload = {
-      content: postData.content,
-      color: postData.color,
-      anonymous: postData.anonymous || false,
-      position_x: postData.position_x,
-      position_y: postData.position_y
+      content: postData.content.trim(),
+      anonymous: Boolean(postData.anonymous),
+      // Só incluir cor se fornecida e válida
+      ...(postData.color && /^#[0-9A-Fa-f]{6}$/.test(postData.color) && { color: postData.color }),
+      // Só incluir posições se fornecidas e válidas
+      ...(typeof postData.position_x === 'number' && !isNaN(postData.position_x) && { position_x: Math.round(postData.position_x) }),
+      ...(typeof postData.position_y === 'number' && !isNaN(postData.position_y) && { position_y: Math.round(postData.position_y) })
     };
-
-    return this.post(`/api/panels/${panelId}/posts`, payload);
+    
+    console.log('📡 API createPost - Payload final:', payload);
+    
+    try {
+      const result = await this.post(`/api/panels/${panelId}/posts`, payload);
+      console.log('✅ API createPost - Sucesso:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ API createPost - Erro:', {
+        error: error.message,
+        panelId,
+        payload
+      });
+      throw error;
+    }
   }
 
   async updatePostPosition(postId, positionData) {
