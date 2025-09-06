@@ -603,17 +603,23 @@ if (currentPanel) {
     <PanelScreen 
       panel={currentPanel} 
       onBackToHome={() => {
-        console.log('🏠 Voltando do painel criado para home');
+        console.log('🏠 Voltando do painel criado para meus murais');
         
         // Resetar estados
         setCurrentPanel(null);
         
-        // Voltar para home
+        // Voltar para home primeiro
         onBack();
+        
+        // Depois ir para "meus murais"
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('stickly-go-to-my-panels'));
+        }, 100);
       }}
     />
   );
 }
+
 
   const getGradient = () => {
     switch (panelType) {
@@ -888,25 +894,6 @@ const HomeScreen = () => {
   const [selectedPanel, setSelectedPanel] = useState(null);
   const [shouldRefreshPanels, setShouldRefreshPanels] = useState(false); // ← NOVO
 
-  //Listener para evento de "ir para meus painéis"
-useEffect(() => {
-  const handleGoToMyPanels = () => {
-    console.log('📋 Evento recebido: ir para meus painéis');
-    setCurrentScreen('my-panels');
-    // Forçar recarga da lista
-    setTimeout(() => {
-      loadMyPanels(true);
-    }, 100);
-  };
-
-  window.addEventListener('stickly-go-to-my-panels', handleGoToMyPanels);
-  
-  return () => {
-    window.removeEventListener('stickly-go-to-my-panels', handleGoToMyPanels);
-  };
-}, []);
-
-
   //Função melhorada para carregar painéis
 const loadMyPanels = useCallback(async (forceReload = false) => {
   if (currentScreen === 'my-panels' || forceReload) {
@@ -1061,7 +1048,12 @@ if (selectedPanel) {
       panel={selectedPanel} 
       onBackToHome={() => {
         setSelectedPanel(null);
-        setCurrentScreen('home');
+        // ✅ CORREÇÃO: Voltar para "meus murais" em vez da home
+        setCurrentScreen('my-panels');
+        // Recarregar a lista de painéis
+        setTimeout(() => {
+          loadMyPanels(true);
+        }, 100);
       }}
     />
   );
@@ -1548,7 +1540,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     await apiService.leavePanel(panel.id);
     console.log('✅ Saída realizada com sucesso');
     
-    // Voltar para home
+    // ✅ CORREÇÃO: Voltar para "meus murais"
     if (onBackToHome) {
       onBackToHome();
     }
