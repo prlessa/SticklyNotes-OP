@@ -585,16 +585,8 @@ const handleSubmit = useCallback(async () => {
 
     console.log('✅ Painel criado com sucesso:', response.id);
 
-    // ✅ NOVO: Alert de sucesso + navegação para meus painéis
-    alert(`🎉 Painel "${response.name}" criado!\n\nCódigo: ${response.id}\n\nVocê será direcionado para seus murais.`);
-    
-    // Voltar para home
-    onBack();
-    
-    // Disparar evento para ir para "meus painéis"
-    setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('stickly-go-to-my-panels'));
-    }, 200);
+    // ✅ CORREÇÃO: Ir direto para o painel criado
+    setCurrentPanel(response);
     
   } catch (err) {
     console.error('❌ Erro ao criar painel:', err);
@@ -602,39 +594,26 @@ const handleSubmit = useCallback(async () => {
   } finally {
     setIsLoading(false);
   }
-}, [formData, panelType, onBack]);
+}, [formData, panelType]);
 
 
-  // ✅ CORREÇÃO: Melhor handling do PanelScreen
-  if (currentPanel) {
-    return (
-      <PanelScreen 
-        panel={currentPanel} 
-        onBackToHome={() => {
-          console.log('🏠 Voltando do painel para home, shouldGoToMyPanels:', shouldGoToMyPanels);
-          
-          // Resetar estado
-          setCurrentPanel(null);
-          setShouldGoToMyPanels(false);
-          
-          // Chamar onBack que vai resetar tudo
-          onBack();
-          
-          // ✅ CRÍTICO: Aguardar um pouco e ir para "meus painéis"
-          if (shouldGoToMyPanels) {
-            setTimeout(() => {
-              console.log('📋 Indo para "meus painéis" após criação');
-              // Aqui precisamos de uma forma de comunicar com o componente pai
-              // Vamos usar um callback especial
-              if (onBack.goToMyPanels) {
-                onBack.goToMyPanels();
-              }
-            }, 100);
-          }
-        }}
-      />
-    );
-  }
+  // ✅ CORREÇÃO: Simplificar o handling do PanelScreen
+if (currentPanel) {
+  return (
+    <PanelScreen 
+      panel={currentPanel} 
+      onBackToHome={() => {
+        console.log('🏠 Voltando do painel criado para home');
+        
+        // Resetar estados
+        setCurrentPanel(null);
+        
+        // Voltar para home
+        onBack();
+      }}
+    />
+  );
+}
 
   const getGradient = () => {
     switch (panelType) {

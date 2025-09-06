@@ -417,21 +417,16 @@ router.post('/', authenticateToken,
         return panelResult.rows[0];
       });
       
-      // Cachear painel (sem senha)
-      const safePanel = { ...panel };
-      delete safePanel.password_hash;
-      await cache.cachePanel(code, safePanel);
+      // ✅ IMPORTANTE: Retornar dados completos para o frontend
+      const responsePanel = {
+        ...panel,
+        post_count: 0,
+        active_users: 0
+      };
       
-      console.log('🎉 Painel criado com sucesso:', {
-        panelId: code,
-        type: type,
-        creatorId: userId,
-        creatorName: creatorName,
-        hasPassword: !!passwordHash,
-        participantAdded: true  // ← Confirmação
-      });
+      console.log('🎉 Painel criado com sucesso - Response:', responsePanel);
       
-      res.status(201).json(panel);
+      res.status(201).json(responsePanel);
       
     } catch (error) {
       console.error('❌ Erro detalhado ao criar painel:', {
@@ -453,7 +448,6 @@ router.post('/', authenticateToken,
     }
   }
 );
-
 /**
  * POST /api/panels/:code
  * Acessa um painel existente (requer autenticação e possivelmente senha)
