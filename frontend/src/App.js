@@ -552,6 +552,7 @@ const CreatePanelScreen = ({ panelType, onBack, user }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [currentPanel, setCurrentPanel] = useState(null);
+  const [shouldGoToMyPanels, setShouldGoToMyPanels] = useState(false); // ← NOVO
 
   const colors = getColors(panelType);
 
@@ -563,39 +564,77 @@ const CreatePanelScreen = ({ panelType, onBack, user }) => {
     }));
   }, [panelType, colors.backgrounds]);
 
-  const handleSubmit = useCallback(async () => {
-    if (!formData.name.trim()) {
-      setError('Digite um nome para o painel');
-      return;
-    }
+const handleSubmit = useCallback(async () => {
+  if (!formData.name.trim()) {
+    setError('Digite um nome para o painel');
+    return;
+  }
 
-    setIsLoading(true);
-    setError('');
+  setIsLoading(true);
+  setError('');
 
-    try {
-      const response = await apiService.createPanel({
-        name: formData.name,
-        type: panelType,
-        password: formData.requirePassword ? formData.password : null,
-        backgroundColor: formData.backgroundColor
-      });
+  try {
+    console.log('🔄 Criando painel...', { name: formData.name, type: panelType });
 
-      setCurrentPanel(response);
-    } catch (err) {
-      setError(err.message || 'Erro ao criar painel');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [formData, panelType]);
+    const response = await apiService.createPanel({
+      name: formData.name,
+      type: panelType,
+      password: formData.requirePassword ? formData.password : null,
+      backgroundColor: formData.backgroundColor
+    });
 
+    console.log('✅ Painel criado com sucesso:', response.id);
+
+    // ✅ NOVO: Alert de sucesso + navegação para meus painéis
+    alert(`🎉 Painel "${response.name}" criado!\n\nCódigo: ${response.id}\n\nVocê será direcionado para seus murais.`);
+    
+    // Voltar para home
+    onBack();
+    
+    // Disparar evento para ir para "meus painéis"
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('stickly-go-to-my-panels'));
+    }, 200);
+    
+  } catch (err) {
+    console.error('❌ Erro ao criar painel:', err);
+    setError(err.message || 'Erro ao criar painel');
+  } finally {
+    setIsLoading(false);
+  }
+}, [formData, panelType, onBack]);
+
+
+  // ✅ CORREÇÃO: Melhor handling do PanelScreen
   if (currentPanel) {
-  return (
-    <PanelScreen 
-      panel={currentPanel} 
-      onBackToHome={onBack}  // ← CORRIGIDO
-    />
-  );
-}
+    return (
+      <PanelScreen 
+        panel={currentPanel} 
+        onBackToHome={() => {
+          console.log('🏠 Voltando do painel para home, shouldGoToMyPanels:', shouldGoToMyPanels);
+          
+          // Resetar estado
+          setCurrentPanel(null);
+          setShouldGoToMyPanels(false);
+          
+          // Chamar onBack que vai resetar tudo
+          onBack();
+          
+          // ✅ CRÍTICO: Aguardar um pouco e ir para "meus painéis"
+          if (shouldGoToMyPanels) {
+            setTimeout(() => {
+              console.log('📋 Indo para "meus painéis" após criação');
+              // Aqui precisamos de uma forma de comunicar com o componente pai
+              // Vamos usar um callback especial
+              if (onBack.goToMyPanels) {
+                onBack.goToMyPanels();
+              }
+            }, 100);
+          }
+        }}
+      />
+    );
+  }
 
   const getGradient = () => {
     switch (panelType) {
@@ -788,15 +827,6 @@ const JoinPanelScreen = ({ onBack, user }) => {
     }
   }, [formData, requiresPassword]);
 
-  if (currentPanel) {
-  return (
-    <PanelScreen 
-      panel={currentPanel} 
-      onBackToHome={onBack}
-    />
-  );
-}
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-100 to-emerald-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-md w-full border border-gray-100">
@@ -877,48 +907,81 @@ const HomeScreen = () => {
   const [myPanels, setMyPanels] = useState([]);
   const [loadingPanels, setLoadingPanels] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState(null);
-// Carregar painéis do usuário com atualização periódica
-  useEffect(() => {
-    const loadMyPanels = async () => {
-      if (currentScreen === 'my-panels') {
-        setLoadingPanels(true);
-        try {
-          const panels = await apiService.getMyPanels();
-          setMyPanels(panels);
-          
-          // Log das notificações para debug
-          const panelsWithNotifications = panels.filter(p => p.unread_count > 0);
-          if (panelsWithNotifications.length > 0) {
-            console.log('📬 Painéis com notificações:', panelsWithNotifications.map(p => ({
-              name: p.name,
-              unread: p.unread_count
-            })));
-          }
-        } catch (err) {
-          console.error('Erro ao carregar painéis:', err);
-        } finally {
-          setLoadingPanels(false);
-        }
+  const [shouldRefreshPanels, setShouldRefreshPanels] = useState(false); // ← NOVO
+
+  //Listener para evento de "ir para meus painéis"
+useEffect(() => {
+  const handleGoToMyPanels = () => {
+    console.log('📋 Evento recebido: ir para meus painéis');
+    setCurrentScreen('my-panels');
+    // Forçar recarga da lista
+    setTimeout(() => {
+      loadMyPanels(true);
+    }, 100);
+  };
+
+  window.addEventListener('stickly-go-to-my-panels', handleGoToMyPanels);
+  
+  return () => {
+    window.removeEventListener('stickly-go-to-my-panels', handleGoToMyPanels);
+  };
+}, []);
+
+
+  //Função melhorada para carregar painéis
+const loadMyPanels = useCallback(async (forceReload = false) => {
+  if (currentScreen === 'my-panels' || forceReload) {
+    console.log('🔄 Carregando painéis...', { currentScreen, forceReload });
+    setLoadingPanels(true);
+    try {
+      // Limpar cache se forçado
+      if (forceReload && apiService.clearRateLimiting) {
+        apiService.clearRateLimiting();
       }
-    };
-
-    // Carregar imediatamente
-    loadMyPanels();
-
-    // Atualizar a cada 30 segundos quando estiver na tela "meus painéis"
-    let interval;
-    if (currentScreen === 'my-panels') {
-      interval = setInterval(() => {
-        loadMyPanels();
-      }, 30000); // 30 segundos
+      
+      const panels = await apiService.getMyPanels();
+      setMyPanels(panels);
+      
+      console.log('📋 Painéis carregados:', {
+        total: panels.length,
+        panels: panels.map(p => ({ id: p.id, name: p.name, type: p.type }))
+      });
+      
+      // Log das notificações para debug
+      const panelsWithNotifications = panels.filter(p => p.unread_count > 0);
+      if (panelsWithNotifications.length > 0) {
+        console.log('📬 Painéis com notificações:', panelsWithNotifications.map(p => ({
+          name: p.name,
+          unread: p.unread_count
+        })));
+      }
+    } catch (err) {
+      console.error('❌ Erro ao carregar painéis:', err);
+    } finally {
+      setLoadingPanels(false);
     }
+  }
+}, [currentScreen]);
 
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
-  }, [currentScreen]);
+    // Carregar painéis quando necessário
+useEffect(() => {
+  loadMyPanels();
+}, [loadMyPanels]);
+
+// Atualizar a cada 30 segundos quando estiver na tela "meus painéis"
+useEffect(() => {
+  let interval;
+  if (currentScreen === 'my-panels') {
+    interval = setInterval(() => {
+      console.log('🔄 Auto-reload de painéis (30s)');
+      loadMyPanels();
+    }, 30000);
+  }
+
+  return () => {
+    if (interval) clearInterval(interval);
+  };
+}, [currentScreen, loadMyPanels]);
 
   // Tela de escolha de tipo
   if (currentScreen === 'create' && !panelType) {

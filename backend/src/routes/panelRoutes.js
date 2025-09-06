@@ -337,6 +337,13 @@ router.post('/', authenticateToken,
       const { name, type, password, backgroundColor } = req.body;
       const userId = req.user.userId;
 
+      console.log('🔄 Criando painel:', {
+        name,
+        type,
+        userId,
+        hasPassword: !!password
+      });
+
       // Buscar dados do usuário
       const userResult = await db.query(
         'SELECT first_name, last_name FROM users WHERE id = $1',
@@ -368,7 +375,14 @@ router.post('/', authenticateToken,
       const defaultColors = getDefaultColors(type);
       const finalBackgroundColor = backgroundColor || defaultColors.background;
       
-      // Inserir no banco usando transação
+      console.log('📋 Dados do painel:', {
+        code,
+        creatorName,
+        maxUsers,
+        finalBackgroundColor
+      });
+      
+      // ✅ CORREÇÃO: Inserir no banco usando transação E adicionar participante
       const panel = await db.transaction(async (client) => {
         // Criar painel
         const panelResult = await client.query(`
@@ -384,29 +398,48 @@ router.post('/', authenticateToken,
           finalBackgroundColor, maxUsers
         ]);
         
-        // Adicionar criador como participante
-        await client.query(`
-          INSERT INTO panel_participants (panel_id, user_id, username, user_uuid)
-          VALUES ($1, $2, $3, $4)
+        console.log('✅ Painel criado no banco:', panelResult.rows[0].id);
+        
+        // ✅ CRÍTICO: Adicionar criador como participante PERMANENTE
+        const participantResult = await client.query(`
+          INSERT INTO panel_participants (panel_id, user_id, username, user_uuid, joined_at, last_access)
+          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          RETURNING id
         `, [code, `user_${userId}`, creatorName, userId]);
+        
+        console.log('✅ Criador adicionado como participante:', {
+          panelId: code,
+          participantId: participantResult.rows[0].id,
+          userId,
+          userName: creatorName
+        });
         
         return panelResult.rows[0];
       });
       
       // Cachear painel (sem senha)
-      await cache.cachePanel(code, panel);
+      const safePanel = { ...panel };
+      delete safePanel.password_hash;
+      await cache.cachePanel(code, safePanel);
       
-      console.log('✅ Painel criado com sucesso:', {
+      console.log('🎉 Painel criado com sucesso:', {
         panelId: code,
         type: type,
         creatorId: userId,
-        hasPassword: !!passwordHash
+        creatorName: creatorName,
+        hasPassword: !!passwordHash,
+        participantAdded: true  // ← Confirmação
       });
       
       res.status(201).json(panel);
       
     } catch (error) {
-      console.error('❌ Erro ao criar painel:', error);
+      console.error('❌ Erro detalhado ao criar painel:', {
+        message: error.message,
+        stack: error.stack,
+        code: error.code,
+        constraint: error.constraint
+      });
       
       if (error.code === '23505') {
         return res.status(500).json({
