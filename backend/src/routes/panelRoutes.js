@@ -401,18 +401,18 @@ router.post('/', authenticateToken,
         console.log('✅ Painel criado no banco:', panelResult.rows[0].id);
         
         // ✅ CRÍTICO: Adicionar criador como participante PERMANENTE
-        const participantResult = await client.query(`
-          INSERT INTO panel_participants (panel_id, user_id, username, user_uuid, joined_at, last_access)
-          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          RETURNING id
-        `, [code, `user_${userId}`, creatorName, userId]);
-        
-        console.log('✅ Criador adicionado como participante:', {
-          panelId: code,
-          participantId: participantResult.rows[0].id,
-          userId,
-          userName: creatorName
-        });
+const participantResult = await client.query(`
+  INSERT INTO panel_participants (panel_id, user_id, username, user_uuid, joined_at, last_access)
+  VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  RETURNING id
+`, [code, `user_${userId}`, creatorName, userId]);
+
+console.log('✅ Criador adicionado como participante:', {
+  panelId: code,
+  participantId: participantResult.rows[0].id,
+  userId,
+  userName: creatorName
+});
         
         return panelResult.rows[0];
       });
