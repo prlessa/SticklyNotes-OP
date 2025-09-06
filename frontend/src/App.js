@@ -1560,23 +1560,27 @@ const PanelScreen = ({ panel, onBackToHome }) => {
   }, [panel.id]);
 
   const handleLeavePanel = useCallback(async () => {
-    try {
-      console.log('🚪 Saindo do painel:', panel.id);
-      await apiService.leavePanel(panel.id);
-      console.log('✅ Saída realizada com sucesso');
-      
-      setShowLeaveModal(false);
-      
-      if (onBackToHome) {
-        onBackToHome();
-      } else {
-        window.location.reload();
-      }
-    } catch (err) {
-      console.error('❌ Erro ao sair do painel:', err);
-      setError(err.message);
+  try {
+    console.log('🚪 Saindo do painel:', panel.id);
+    
+    // Primeiro fechar o modal
+    setShowLeaveModal(false);
+    
+    await apiService.leavePanel(panel.id);
+    console.log('✅ Saída realizada com sucesso');
+    
+    // Voltar para home
+    if (onBackToHome) {
+      onBackToHome();
     }
-  }, [panel.id, onBackToHome]);
+  } catch (err) {
+    console.error('❌ Erro ao sair do painel:', err);
+    setError(err.message || 'Erro ao sair do mural');
+    
+    // Reabrir modal em caso de erro
+    setShowLeaveModal(true);
+  }
+}, [panel.id, onBackToHome]);
 
   if (isLoading) {
     return <LoadingSpinner message="Carregando mural..." />;
@@ -1832,36 +1836,35 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         isMobile={isMobile}
       />
 
-      {/* Modal de Confirmação de Saída */}
-      {showLeaveModal && (
-        <Modal isOpen={showLeaveModal} onClose={() => setShowLeaveModal(false)} title="Sair do Mural">
-          <div className="space-y-4">
-            <div className="text-center">
-              <div className="text-6xl mb-4">🚪</div>
-              <p className="text-lg text-gray-800 mb-2">Tem certeza que deseja sair deste mural?</p>
-              <p className="text-sm text-gray-600">
-                Você precisará do código <strong>{panel.id}</strong> para entrar novamente.
-              </p>
-            </div>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowLeaveModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleLeavePanel}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-              >
-                Sair do Mural
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
+{/* Modal de Confirmação de Saída */}
+{showLeaveModal && (
+  <Modal isOpen={showLeaveModal} onClose={() => setShowLeaveModal(false)} title="Sair do Mural">
+    <div className="space-y-4">
+      <div className="text-center">
+        <div className="text-6xl mb-4">🚪</div>
+        <p className="text-lg text-gray-800 mb-2">Tem certeza que deseja sair deste mural?</p>
+        <p className="text-sm text-gray-600">
+          Você precisará do código <strong>{panel.id}</strong> para entrar novamente.
+        </p>
+      </div>
+      
+      <div className="flex gap-3">
+        <button
+          onClick={() => setShowLeaveModal(false)}
+          className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={handleLeavePanel}
+          className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+        >
+          Confirmar Saída
+        </button>
+      </div>
+    </div>
+  </Modal>
+)}
       {/* Toast de Erro */}
       {error && (
         <div className={`fixed ${isMobile ? 'bottom-32 left-4 right-4' : 'bottom-4 right-4'} bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50`}>
