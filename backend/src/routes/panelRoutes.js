@@ -547,10 +547,10 @@ router.post('/:code', authenticateToken,
     }
   }
 );
-
 /**
  * DELETE /api/panels/:code/leave
- * Sair de um painel (remove COMPLETAMENTE o usuário)
+ * REGRA 1: Usuário sai do mural (desvincula)
+ * REGRA 2: Se mural ficar órfão, deleta IMEDIATAMENTE
  */
 router.delete('/:code/leave', authenticateToken,
   [
@@ -566,50 +566,76 @@ router.delete('/:code/leave', authenticateToken,
       const userId = req.user.userId;
       const upperCode = code.toUpperCase();
       
-      console.log(`🚪 Usuário ${userId} saindo do painel ${upperCode}`);
+      console.log(`🚪 REGRA 1: Usuário ${userId} saindo do mural ${upperCode}`);
       
-      // Usar transação para remover de TODAS as tabelas relacionadas
+      let panelDeleted = false;
+      
       await db.transaction(async (client) => {
-        // 1. Remover da tabela de participantes (histórico permanente)
+        // 1. Remover usuário dos participantes permanentes
         const participantResult = await client.query(
-          'DELETE FROM panel_participants WHERE panel_id = $1 AND user_uuid = $2 RETURNING *',
+          'DELETE FROM panel_participants WHERE panel_id = $1 AND user_uuid = $2 RETURNING username',
           [upperCode, userId]
         );
-        console.log(`   Removido de panel_participants: ${participantResult.rows.length} registros`);
         
-        // 2. Remover da tabela de usuários ativos (sessão atual)
-        const activeResult = await client.query(
-          'DELETE FROM active_users WHERE panel_id = $1 AND user_uuid = $2 RETURNING *',
+        if (participantResult.rows.length === 0) {
+          throw new Error('Usuário não estava vinculado a este mural');
+        }
+        
+        console.log(`   ✅ Removido participante: ${participantResult.rows[0].username}`);
+        
+        // 2. Remover da sessão ativa
+        await client.query(
+          'DELETE FROM active_users WHERE panel_id = $1 AND user_uuid = $2',
           [upperCode, userId]
         );
-        console.log(`   Removido de active_users: ${activeResult.rows.length} registros`);
         
-        // 3. Verificar se o usuário era o criador (não permitir sair se for o único)
-        const panelResult = await client.query(
-          'SELECT creator_user_id, (SELECT COUNT(*) FROM panel_participants WHERE panel_id = $1) as participant_count FROM panels WHERE id = $1',
+        // 3. REGRA 2: Verificar se mural ficou órfão
+        const remainingParticipants = await client.query(
+          'SELECT COUNT(*) as count FROM panel_participants WHERE panel_id = $1',
           [upperCode]
         );
         
-        if (panelResult.rows.length > 0) {
-          const panel = panelResult.rows[0];
-          console.log(`   Painel tem ${panel.participant_count} participantes restantes`);
+        const participantCount = parseInt(remainingParticipants.rows[0].count);
+        
+        if (participantCount === 0) {
+          console.log(`🗑️ REGRA 2: Mural ${upperCode} ficou órfão - DELETANDO IMEDIATAMENTE`);
           
-          // Se era o criador e não há mais participantes, pode deletar o painel
-          if (panel.creator_user_id === userId && panel.participant_count === 0) {
-            console.log(`   Criador saiu e não há mais participantes, mantendo painel órfão`);
-            // Opcionalmente, você pode deletar o painel aqui se desejar
-            // await client.query('DELETE FROM panels WHERE id = $1', [upperCode]);
+          // Obter informações do painel antes de deletar
+          const panelInfo = await client.query(
+            'SELECT name, (SELECT COUNT(*) FROM posts WHERE panel_id = $1) as post_count FROM panels WHERE id = $1',
+            [upperCode]
+          );
+          
+          if (panelInfo.rows.length > 0) {
+            const { name, post_count } = panelInfo.rows[0];
+            
+            // Deletar tudo imediatamente
+            const deletedPosts = await client.query('DELETE FROM posts WHERE panel_id = $1 RETURNING id', [upperCode]);
+            await client.query('DELETE FROM active_users WHERE panel_id = $1', [upperCode]);
+            await client.query('DELETE FROM panels WHERE id = $1', [upperCode]);
+            
+            console.log(`✅ Mural órfão deletado imediatamente: ${upperCode} (${name}) - ${deletedPosts.rows.length} posts removidos`);
+            panelDeleted = true;
           }
+        } else {
+          console.log(`   📊 Participantes restantes no mural ${upperCode}: ${participantCount}`);
         }
       });
       
-      console.log(`✅ Usuário ${userId} removido completamente do painel ${upperCode}`);
+      // Invalidar cache se painel foi deletado
+      if (panelDeleted && cache && cache.invalidate) {
+        await cache.invalidate(`panel:${upperCode}`);
+        await cache.invalidate(`posts:${upperCode}`);
+      }
+      
+      console.log(`✅ Usuário ${userId} saiu do mural ${upperCode}${panelDeleted ? ' (mural deletado)' : ''}`);
+      
       res.status(204).send();
       
     } catch (error) {
-      console.error('❌ Erro ao sair do painel:', error);
+      console.error('❌ Erro ao sair do mural:', error);
       res.status(500).json({
-        error: 'Erro ao sair do painel'
+        error: error.message || 'Erro ao sair do mural'
       });
     }
   }
@@ -688,6 +714,20 @@ async function isUserActive(panelId, userId) {
   } catch (error) {
     console.error('❌ Erro ao verificar usuário ativo:', error);
     return false;
+  }
+}
+/**
+ * Função auxiliar para atualizar last_activity sempre que há atividade
+ */
+async function updatePanelActivity(panelId) {
+  try {
+    await db.query(
+      'UPDATE panels SET last_activity = CURRENT_TIMESTAMP WHERE id = $1',
+      [panelId]
+    );
+    console.log(`📅 Atividade atualizada para painel ${panelId}`);
+  } catch (error) {
+    console.error('Erro ao atualizar atividade do painel:', error);
   }
 }
 

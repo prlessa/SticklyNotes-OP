@@ -391,8 +391,7 @@ const AuthScreen = () => {
   );
 };
 
-// Card de Painel para "Meus Murais" - Versão Responsiva
-// Card de Painel para "Meus Murais" - Com Notificações
+/// Card de Painel para "Meus Murais" - Com Notificações
 const PanelCard = ({ panel, onSelectPanel }) => {
   const getTypeIcon = (type) => {
     switch (type) {
@@ -878,7 +877,7 @@ const HomeScreen = () => {
   const [myPanels, setMyPanels] = useState([]);
   const [loadingPanels, setLoadingPanels] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState(null);
-  // Carregar painéis do usuário
+// Carregar painéis do usuário com atualização periódica
   useEffect(() => {
     const loadMyPanels = async () => {
       if (currentScreen === 'my-panels') {
@@ -886,6 +885,15 @@ const HomeScreen = () => {
         try {
           const panels = await apiService.getMyPanels();
           setMyPanels(panels);
+          
+          // Log das notificações para debug
+          const panelsWithNotifications = panels.filter(p => p.unread_count > 0);
+          if (panelsWithNotifications.length > 0) {
+            console.log('📬 Painéis com notificações:', panelsWithNotifications.map(p => ({
+              name: p.name,
+              unread: p.unread_count
+            })));
+          }
         } catch (err) {
           console.error('Erro ao carregar painéis:', err);
         } finally {
@@ -894,7 +902,22 @@ const HomeScreen = () => {
       }
     };
 
+    // Carregar imediatamente
     loadMyPanels();
+
+    // Atualizar a cada 30 segundos quando estiver na tela "meus painéis"
+    let interval;
+    if (currentScreen === 'my-panels') {
+      interval = setInterval(() => {
+        loadMyPanels();
+      }, 30000); // 30 segundos
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
   }, [currentScreen]);
 
   // Tela de escolha de tipo
@@ -1428,7 +1451,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     }
   }, [panel.id]);
 
-const handleMovePost = useCallback(async (postId, x, y) => {
+  const handleMovePost = useCallback(async (postId, x, y) => {
     try {
       console.log('🔄 handleMovePost - Iniciando:', {
         postId,
@@ -1523,7 +1546,7 @@ const handleMovePost = useCallback(async (postId, x, y) => {
           }}
         >
           {isMobile ? (
-            // Layout mobile com controles de zoom
+            // Layout mobile - com botão de sair
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <h1 className="text-sm font-bold text-gray-800 truncate flex-1 mr-2">
@@ -1575,7 +1598,7 @@ const handleMovePost = useCallback(async (postId, x, y) => {
               </div>
             </div>
           ) : (
-            // Layout desktop - original
+            // Layout desktop - com botão de sair
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <h1 className="text-xl font-bold text-gray-800">{panel.name}</h1>
@@ -1627,7 +1650,7 @@ const handleMovePost = useCallback(async (postId, x, y) => {
         </div>
       </div>
 
-{/* Controles de Zoom para Mobile - Visual Neutro */}
+      {/* Controles de Zoom para Mobile */}
       {isMobile && (
         <div className="fixed bottom-20 left-4 z-40 flex flex-col gap-2">
           <button
@@ -1707,7 +1730,7 @@ const handleMovePost = useCallback(async (postId, x, y) => {
         </div>
       </div>
 
-      {/* Botão flutuante para nova nota no mobile - Ícone Stickly Notes */}
+      {/* Botão flutuante para nova nota no mobile */}
       {isMobile && (
         <button
           onClick={() => setShowNewPostForm(true)}
@@ -1794,7 +1817,6 @@ const handleMovePost = useCallback(async (postId, x, y) => {
     </div>
   );
 };
-
 
 const ShareModal = ({ panel, isOpen, onClose, isMobile }) => {
   const [copied, setCopied] = useState(false);

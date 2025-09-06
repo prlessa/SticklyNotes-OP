@@ -221,7 +221,7 @@ class ApiService {
     return this.get(`/api/panels/${panelId}/posts`);
   }
 
-  async createPost(panelId, postData) {
+async createPost(panelId, postData) {
     console.log('📡 API createPost - Recebendo dados:', {
       panelId,
       postData
@@ -267,7 +267,7 @@ class ApiService {
     }
   }
 
-  async updatePostPosition(postId, positionData) {
+ async updatePostPosition(postId, positionData) {
     console.log('📡 API updatePostPosition - Recebendo dados:', {
       postId,
       positionData

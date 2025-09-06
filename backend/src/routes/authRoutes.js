@@ -402,7 +402,7 @@ router.get('/my-panels', authenticateToken, async (req, res) => {
 
     console.log('📋 Painéis encontrados:', participantPanels.rows.length);
 
-    // Log para debug das notificações
+    // Log das notificações para debug
     participantPanels.rows.forEach(panel => {
       if (panel.unread_count > 0) {
         console.log(`   📬 ${panel.id}: ${panel.name} - ${panel.unread_count} mensagens novas`);

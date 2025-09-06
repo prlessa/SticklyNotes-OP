@@ -160,71 +160,67 @@ this.app._router.stack.forEach((middleware, index) => {
         res.status(500).json({ error: 'Erro interno' });
       }
     });
-    // ROTA DE LIMPEZA MANUAL (apenas para desenvolvimento/admin)
-    this.app.post('/api/admin/cleanup', async (req, res) => {
+// Rota para verificar status dos murais (desenvolvimento)
+    this.app.get('/api/admin/panels-status', async (req, res) => {
       try {
         if (config.server.nodeEnv !== 'development') {
           return res.status(403).json({ error: 'Apenas disponível em desenvolvimento' });
         }
 
-        const results = {
-          inactiveUsers: 0,
-          orphanPanels: 0,
-          stalePanels: 0,
-          deletedPosts: 0
-        };
-
-        // 1. Limpar usuários inativos
-        const inactiveUsers = await db.query(`
-          DELETE FROM active_users 
-          WHERE last_seen < NOW() - INTERVAL '5 minutes'
-          RETURNING panel_id, user_id
+        // Estatísticas gerais
+        const stats = await db.query(`
+          SELECT 
+            (SELECT COUNT(*) FROM panels) as total_panels,
+            (SELECT COUNT(*) FROM panel_participants) as total_participants,
+            (SELECT COUNT(*) FROM active_users) as total_active_users,
+            (SELECT COUNT(*) FROM posts) as total_posts
         `);
-        results.inactiveUsers = inactiveUsers.rows.length;
 
-        // 2. Encontrar painéis órfãos
+        // Murais órfãos (candidatos à REGRA 2)
         const orphanPanels = await db.query(`
-          SELECT p.id, p.name,
+          SELECT p.id, p.name, p.created_at, p.last_activity,
                  (SELECT COUNT(*) FROM posts WHERE panel_id = p.id) as post_count
           FROM panels p
           WHERE NOT EXISTS (
             SELECT 1 FROM panel_participants pp WHERE pp.panel_id = p.id
           )
+          ORDER BY p.created_at DESC
         `);
 
-        // 3. Deletar painéis órfãos
-        for (const panel of orphanPanels.rows) {
-          await db.transaction(async (client) => {
-            const deletedPosts = await client.query('DELETE FROM posts WHERE panel_id = $1 RETURNING id', [panel.id]);
-            await client.query('DELETE FROM active_users WHERE panel_id = $1', [panel.id]);
-            await client.query('DELETE FROM panels WHERE id = $1', [panel.id]);
-            
-            results.deletedPosts += deletedPosts.rows.length;
-          });
-        }
-        results.orphanPanels = orphanPanels.rows.length;
-
-        // 4. Estatísticas finais
-        const stats = await db.query(`
-          SELECT 
-            (SELECT COUNT(*) FROM panels) as total_panels,
-            (SELECT COUNT(*) FROM active_users) as total_active_users,
-            (SELECT COUNT(*) FROM panel_participants) as total_participants,
-            (SELECT COUNT(*) FROM posts) as total_posts
+        // Murais inativos há mais de 25 dias (próximos da REGRA 3)
+        const stalePanels = await db.query(`
+          SELECT p.id, p.name, p.last_activity,
+                 (SELECT COUNT(*) FROM panel_participants WHERE panel_id = p.id) as participant_count,
+                 (SELECT COUNT(*) FROM posts WHERE panel_id = p.id) as post_count,
+                 EXTRACT(DAYS FROM (NOW() - p.last_activity)) as days_inactive
+          FROM panels p
+          WHERE p.last_activity < NOW() - INTERVAL '25 days'
+          ORDER BY p.last_activity ASC
         `);
-
-        logger.info('🧹 Limpeza manual executada:', results);
 
         res.json({
-          success: true,
-          results,
-          currentStats: stats.rows[0],
-          message: `Limpeza concluída: ${results.orphanPanels} painéis órfãos e ${results.inactiveUsers} usuários inativos removidos`
+          generalStats: stats.rows[0],
+          orphanPanels: {
+            count: orphanPanels.rows.length,
+            panels: orphanPanels.rows
+          },
+          stalePanels: {
+            count: stalePanels.rows.length,
+            panels: stalePanels.rows.map(p => ({
+              ...p,
+              days_inactive: Math.floor(p.days_inactive)
+            }))
+          },
+          rules: {
+            rule1: "Usuários inativos removidos de sessões após 15min",
+            rule2: "Murais órfãos deletados IMEDIATAMENTE",
+            rule3: "Murais inativos há 30+ dias deletados TOTALMENTE"
+          }
         });
 
       } catch (error) {
-        logger.error('Erro na limpeza manual:', error);
-        res.status(500).json({ error: 'Erro na limpeza', details: error.message });
+        console.error('Erro ao obter status:', error);
+        res.status(500).json({ error: 'Erro ao obter status' });
       }
     });
     // Rotas de autenticação (públicas)
@@ -400,20 +396,20 @@ this.app._router.stack.forEach((middleware, index) => {
       this.setupRoutes();
       this.setupWebSocket();
 
-// Cleanup automático a cada 5 minutos
+// Cleanup automático com as 3 regras específicas a cada 10 minutos
       setInterval(async () => {
         try {
-          // 1. Remover usuários inativos (>30 dias)
+          // REGRA 1: Remover usuários inativos de sessões (não afeta vínculos permanentes)
           const inactiveUsersResult = await db.query(`
             DELETE FROM active_users 
-            WHERE last_seen < NOW() - INTERVAL '30 days'
+            WHERE last_seen < NOW() - INTERVAL '15 minutes'
             RETURNING panel_id, user_id
           `);
 
           if (inactiveUsersResult.rows.length > 0) {
-            logger.info(`Removidos ${inactiveUsersResult.rows.length} usuários inativos automaticamente`);
+            logger.info(`Removidos ${inactiveUsersResult.rows.length} usuários de sessões ativas`);
             
-            // Notificar via WebSocket sobre usuários que saíram
+            // Notificar via WebSocket
             inactiveUsersResult.rows.forEach(row => {
               this.io.to(`panel:${row.panel_id}`).emit('user-left', { 
                 userId: row.user_id 
@@ -421,70 +417,89 @@ this.app._router.stack.forEach((middleware, index) => {
             });
           }
 
-          // 2. Identificar e deletar painéis órfãos (sem participantes permanentes)
+          // REGRA 2: Deletar murais órfãos IMEDIATAMENTE (sem usuários vinculados)
           const orphanPanelsResult = await db.query(`
             SELECT p.id, p.name, p.created_at,
-                   (SELECT COUNT(*) FROM panel_participants pp WHERE pp.panel_id = p.id) as participant_count,
-                   (SELECT COUNT(*) FROM active_users au WHERE au.panel_id = p.id) as active_count,
                    (SELECT COUNT(*) FROM posts WHERE panel_id = p.id) as post_count
             FROM panels p
             WHERE NOT EXISTS (
               SELECT 1 FROM panel_participants pp WHERE pp.panel_id = p.id
             )
-            AND p.created_at < NOW() - INTERVAL '24 hours'
           `);
 
           if (orphanPanelsResult.rows.length > 0) {
-            logger.info(`Encontrados ${orphanPanelsResult.rows.length} painéis órfãos para limpeza:`, 
-              orphanPanelsResult.rows.map(p => ({ id: p.id, name: p.name, posts: p.post_count }))
-            );
+            logger.info(`🗑️ REGRA 2: Encontrados ${orphanPanelsResult.rows.length} murais órfãos para deleção IMEDIATA`);
 
-            // Deletar painéis órfãos (CASCADE irá deletar posts automaticamente)
             for (const panel of orphanPanelsResult.rows) {
               try {
                 await db.transaction(async (client) => {
-                  // Deletar usuários ativos do painel
-                  await client.query('DELETE FROM active_users WHERE panel_id = $1', [panel.id]);
-                  
-                  // Deletar posts (se CASCADE não estiver configurado)
+                  // Deletar posts
                   const deletedPosts = await client.query('DELETE FROM posts WHERE panel_id = $1 RETURNING id', [panel.id]);
+                  
+                  // Deletar usuários ativos restantes
+                  await client.query('DELETE FROM active_users WHERE panel_id = $1', [panel.id]);
                   
                   // Deletar o painel
                   await client.query('DELETE FROM panels WHERE id = $1', [panel.id]);
                   
-                  logger.info(`🗑️ Painel órfão deletado: ${panel.id} (${panel.name}) - ${deletedPosts.rows.length} posts removidos`);
+                  logger.info(`✅ Mural órfão deletado imediatamente: ${panel.id} (${panel.name}) - ${deletedPosts.rows.length} posts removidos`);
                 });
 
-                // Invalidar cache se existir
+                // Invalidar cache
                 if (cache && cache.invalidate) {
                   await cache.invalidate(`panel:${panel.id}`);
                   await cache.invalidate(`posts:${panel.id}`);
                 }
 
               } catch (error) {
-                logger.error(`Erro ao deletar painel órfão ${panel.id}:`, error);
+                logger.error(`Erro ao deletar mural órfão ${panel.id}:`, error);
               }
             }
           }
 
-          // 3. Limpar painéis antigos sem atividade (>7 dias sem posts e sem usuários)
-          const staleDate = new Date();
-          staleDate.setDate(staleDate.getDate() - 7);
-
+          // REGRA 3: Murais com 30+ dias de inatividade - DELETAR TUDO
           const stalePanelsResult = await db.query(`
-            DELETE FROM panels 
-            WHERE last_activity < $1 
-              AND NOT EXISTS (SELECT 1 FROM panel_participants WHERE panel_id = panels.id)
-              AND NOT EXISTS (SELECT 1 FROM active_users WHERE panel_id = panels.id)
-              AND (SELECT COUNT(*) FROM posts WHERE panel_id = panels.id) = 0
-            RETURNING id, name
-          `, [staleDate]);
+            SELECT p.id, p.name, p.last_activity,
+                   (SELECT COUNT(*) FROM panel_participants WHERE panel_id = p.id) as participant_count,
+                   (SELECT COUNT(*) FROM posts WHERE panel_id = p.id) as post_count
+            FROM panels p
+            WHERE p.last_activity < NOW() - INTERVAL '30 days'
+          `);
 
           if (stalePanelsResult.rows.length > 0) {
-            logger.info(`🧹 Removidos ${stalePanelsResult.rows.length} painéis antigos sem atividade`);
+            logger.info(`🗑️ REGRA 3: Encontrados ${stalePanelsResult.rows.length} murais inativos há 30+ dias para deleção TOTAL`);
+
+            for (const panel of stalePanelsResult.rows) {
+              try {
+                await db.transaction(async (client) => {
+                  // Remover TODOS os participantes (desvincular usuários)
+                  const removedParticipants = await client.query('DELETE FROM panel_participants WHERE panel_id = $1 RETURNING username', [panel.id]);
+                  
+                  // Deletar posts
+                  const deletedPosts = await client.query('DELETE FROM posts WHERE panel_id = $1 RETURNING id', [panel.id]);
+                  
+                  // Deletar usuários ativos
+                  await client.query('DELETE FROM active_users WHERE panel_id = $1', [panel.id]);
+                  
+                  // Deletar o painel
+                  await client.query('DELETE FROM panels WHERE id = $1', [panel.id]);
+                  
+                  logger.info(`✅ Mural inativo (30+ dias) deletado: ${panel.id} (${panel.name}) - ${removedParticipants.rows.length} usuários desvinculados, ${deletedPosts.rows.length} posts removidos`);
+                });
+
+                // Invalidar cache
+                if (cache && cache.invalidate) {
+                  await cache.invalidate(`panel:${panel.id}`);
+                  await cache.invalidate(`posts:${panel.id}`);
+                }
+
+              } catch (error) {
+                logger.error(`Erro ao deletar mural inativo ${panel.id}:`, error);
+              }
+            }
           }
 
-          // 4. Log de estatísticas de limpeza
+          // Log de estatísticas se houve alguma limpeza
           if (inactiveUsersResult.rows.length > 0 || orphanPanelsResult.rows.length > 0 || stalePanelsResult.rows.length > 0) {
             const stats = await db.query(`
               SELECT 
@@ -494,13 +509,19 @@ this.app._router.stack.forEach((middleware, index) => {
                 (SELECT COUNT(*) FROM posts) as total_posts
             `);
             
-            logger.info('📊 Estatísticas após limpeza:', stats.rows[0]);
+            logger.info('📊 Estatísticas após aplicação das 3 regras:', {
+              ...stats.rows[0],
+              sessionsRemoved: inactiveUsersResult.rows.length,
+              orphanPanelsDeleted: orphanPanelsResult.rows.length,
+              stalePanelsDeleted: stalePanelsResult.rows.length
+            });
           }
 
         } catch (error) {
-          logger.error('❌ Erro no cleanup automático:', error);
+          logger.error('❌ Erro no sistema de limpeza das 3 regras:', error);
         }
-      }, 5 * 60 * 1000); // 5 minutos
+      }, 10 * 60 * 1000); // 10 minutos
+
 
       // *** CORREÇÃO CRÍTICA PARA RAILWAY ***
       // Railway sempre define process.env.PORT
