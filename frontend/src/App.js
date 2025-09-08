@@ -511,19 +511,13 @@ const PanelCard = ({ panel, onSelectPanel }) => {
         </div>
       )}
       
-      {/* Estatísticas em grid responsivo */}
-      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mb-2">
-        <div className="flex items-center">
-          <span className="w-2 h-2 bg-blue-400 rounded-full mr-1"></span>
-          <span>{panel.post_count || 0} posts</span>
-        </div>
-        <div className="flex items-center">
-          <span className={`w-2 h-2 rounded-full mr-1 ${
-            panel.active_users > 0 ? 'bg-green-400' : 'bg-gray-400'
-          }`}></span>
-          <span>{panel.active_users || 0} online</span>
-        </div>
-      </div>
+// Estatísticas em grid responsivo
+<div className="grid grid-cols-1 gap-2 text-xs text-gray-600 mb-2">
+  <div className="flex items-center">
+    <span className="w-2 h-2 bg-blue-400 rounded-full mr-1"></span>
+    <span>{panel.post_count || 0} post{panel.post_count !== 1 ? 's' : ''}</span>
+  </div>
+</div>
       
       {/* Data do último acesso */}
       <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
@@ -1175,11 +1169,10 @@ if (currentScreen === 'my-panels') {
   );
 };
 
-// Componente do Painel (Tela principal do mural) - Com Zoom e Pan
+// Componente do Painel (Tela principal do mural) - Com Touch Responsivo
 const PanelScreen = ({ panel, onBackToHome }) => {
   const { user, logout } = useUser();
   const [posts, setPosts] = useState([]);
-  const [activeUsers, setActiveUsers] = useState([]);
   const [showNewPostForm, setShowNewPostForm] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
@@ -1188,11 +1181,13 @@ const PanelScreen = ({ panel, onBackToHome }) => {
   const [copied, setCopied] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   
-  // Estados para zoom e pan
+  // Estados para zoom e pan com touch
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [focusedPost, setFocusedPost] = useState(null);
   const [isPanning, setIsPanning] = useState(false);
+  const [isZooming, setIsZooming] = useState(false);
+  const [lastTouchDistance, setLastTouchDistance] = useState(0);
   const panelRef = useRef(null);
   const panStart = useRef({ x: 0, y: 0 });
   const lastPanPoint = useRef({ x: 0, y: 0 });
@@ -1208,7 +1203,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
       
       if (mobile) {
         // Em mobile, começar com zoom reduzido para mostrar mais área
-        setZoom(0.6);
+        setZoom(0.7);
       } else {
         setZoom(1);
       }
@@ -1220,17 +1215,24 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Função para calcular distância entre dois pontos de toque
+  const getTouchDistance = (touch1, touch2) => {
+    const dx = touch1.clientX - touch2.clientX;
+    const dy = touch1.clientY - touch2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  // Função para obter centro entre dois pontos de toque
+  const getTouchCenter = (touch1, touch2) => {
+    return {
+      x: (touch1.clientX + touch2.clientX) / 2,
+      y: (touch1.clientY + touch2.clientY) / 2
+    };
+  };
+
   // Funções de zoom e pan
-  const handleZoomIn = () => {
-    setZoom(prev => Math.min(prev * 1.2, 3));
-  };
-
-  const handleZoomOut = () => {
-    setZoom(prev => Math.max(prev / 1.2, 0.3));
-  };
-
   const handleResetView = () => {
-    setZoom(isMobile ? 0.6 : 1);
+    setZoom(isMobile ? 0.7 : 1);
     setPan({ x: 0, y: 0 });
     setFocusedPost(null);
   };
@@ -1265,96 +1267,115 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     }
   };
 
-  // Handlers de pan para mobile
-  const handlePanStart = (clientX, clientY) => {
+  // Handlers de touch para zoom e pan
+  const handleTouchStart = (e) => {
     if (!isMobile) return;
+
+    const touches = e.touches;
     
-    setIsPanning(true);
-    panStart.current = { x: clientX, y: clientY };
-    lastPanPoint.current = { x: clientX, y: clientY };
+    if (touches.length === 1) {
+      // Pan com um dedo
+      const touch = touches[0];
+      setIsPanning(true);
+      setIsZooming(false);
+      panStart.current = { x: touch.clientX, y: touch.clientY };
+      lastPanPoint.current = { x: touch.clientX, y: touch.clientY };
+    } else if (touches.length === 2) {
+      // Zoom com dois dedos
+      e.preventDefault();
+      setIsZooming(true);
+      setIsPanning(false);
+      
+      const distance = getTouchDistance(touches[0], touches[1]);
+      setLastTouchDistance(distance);
+    }
   };
 
-  const handlePanMove = (clientX, clientY) => {
-    if (!isPanning || !isMobile) return;
-    
-    const deltaX = clientX - lastPanPoint.current.x;
-    const deltaY = clientY - lastPanPoint.current.y;
-    
-    setPan(prev => ({
-      x: prev.x + deltaX,
-      y: prev.y + deltaY
-    }));
-    
-    lastPanPoint.current = { x: clientX, y: clientY };
+  const handleTouchMove = (e) => {
+    if (!isMobile) return;
+
+    const touches = e.touches;
+
+    if (isPanning && touches.length === 1) {
+      // Pan com um dedo
+      e.preventDefault();
+      const touch = touches[0];
+      const deltaX = touch.clientX - lastPanPoint.current.x;
+      const deltaY = touch.clientY - lastPanPoint.current.y;
+      
+      setPan(prev => ({
+        x: prev.x + deltaX,
+        y: prev.y + deltaY
+      }));
+      
+      lastPanPoint.current = { x: touch.clientX, y: touch.clientY };
+    } else if (isZooming && touches.length === 2) {
+      // Zoom com dois dedos
+      e.preventDefault();
+      
+      const distance = getTouchDistance(touches[0], touches[1]);
+      const center = getTouchCenter(touches[0], touches[1]);
+      
+      if (lastTouchDistance > 0) {
+        const scale = distance / lastTouchDistance;
+        const newZoom = Math.max(0.3, Math.min(3, zoom * scale));
+        
+        // Calcular novo pan para manter o centro do zoom no ponto médio dos dedos
+        const container = panelRef.current;
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const centerOffsetX = center.x - containerRect.left - containerRect.width / 2;
+          const centerOffsetY = center.y - containerRect.top - containerRect.height / 2;
+          
+          const zoomDelta = newZoom - zoom;
+          const newPan = {
+            x: pan.x - centerOffsetX * zoomDelta / zoom,
+            y: pan.y - centerOffsetY * zoomDelta / zoom
+          };
+          
+          setPan(newPan);
+        }
+        
+        setZoom(newZoom);
+      }
+      
+      setLastTouchDistance(distance);
+    }
   };
 
-  const handlePanEnd = () => {
-    setIsPanning(false);
+  const handleTouchEnd = (e) => {
+    if (!isMobile) return;
+
+    if (e.touches.length === 0) {
+      setIsPanning(false);
+      setIsZooming(false);
+      setLastTouchDistance(0);
+    } else if (e.touches.length === 1 && isZooming) {
+      // Transição de zoom para pan
+      setIsZooming(false);
+      setIsPanning(true);
+      const touch = e.touches[0];
+      lastPanPoint.current = { x: touch.clientX, y: touch.clientY };
+    }
   };
 
-  // Event listeners para pan
+  // Event listeners para touch
   useEffect(() => {
     if (!isMobile) return;
 
-    const handleTouchStart = (e) => {
-      if (e.touches.length === 1 && e.target === panelRef.current) {
-        e.preventDefault();
-        const touch = e.touches[0];
-        handlePanStart(touch.clientX, touch.clientY);
-      }
-    };
-
-    const handleTouchMove = (e) => {
-      if (e.touches.length === 1 && isPanning) {
-        e.preventDefault();
-        const touch = e.touches[0];
-        handlePanMove(touch.clientX, touch.clientY);
-      }
-    };
-
-    const handleTouchEnd = () => {
-      handlePanEnd();
-    };
-
-    const handleMouseDown = (e) => {
-      if (e.target === panelRef.current) {
-        handlePanStart(e.clientX, e.clientY);
-      }
-    };
-
-    const handleMouseMove = (e) => {
-      if (isPanning) {
-        e.preventDefault();
-        handlePanMove(e.clientX, e.clientY);
-      }
-    };
-
-    const handleMouseUp = () => {
-      handlePanEnd();
-    };
-
     const panel = panelRef.current;
     if (panel) {
-      // Touch events
       panel.addEventListener('touchstart', handleTouchStart, { passive: false });
-      document.addEventListener('touchmove', handleTouchMove, { passive: false });
-      document.addEventListener('touchend', handleTouchEnd);
-      
-      // Mouse events para desktop
-      panel.addEventListener('mousedown', handleMouseDown);
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      panel.addEventListener('touchmove', handleTouchMove, { passive: false });
+      panel.addEventListener('touchend', handleTouchEnd, { passive: false });
 
       return () => {
         panel.removeEventListener('touchstart', handleTouchStart);
-        document.removeEventListener('touchmove', handleTouchMove);
-        document.removeEventListener('touchend', handleTouchEnd);
-        panel.removeEventListener('mousedown', handleMouseDown);
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+        panel.removeEventListener('touchmove', handleTouchMove);
+        panel.removeEventListener('touchend', handleTouchEnd);
       };
     }
-  }, [isMobile, isPanning]);
+  }, [isMobile, isPanning, isZooming, zoom, pan, lastTouchDistance]);
 
   // Carregar dados iniciais
   useEffect(() => {
@@ -1391,21 +1412,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     }
   }, [focusedPost]);
 
-  const handleUserJoined = useCallback(({ userName, userId: joinedUserId }) => {
-    setActiveUsers(prev => {
-      const exists = prev.some(u => u.user_id === joinedUserId);
-      if (!exists) {
-        return [...prev, { user_id: joinedUserId, name: userName }];
-      }
-      return prev;
-    });
-  }, []);
-
-  const handleUserLeft = useCallback(({ userId: leftUserId }) => {
-    setActiveUsers(prev => prev.filter(u => u.user_id !== leftUserId));
-  }, []);
-
-  // Configurar WebSocket
+  // Configurar WebSocket (removido handlers de usuários)
   useSocket(
     panel.id,
     userName,
@@ -1413,8 +1420,8 @@ const PanelScreen = ({ panel, onBackToHome }) => {
     handleNewPost,
     handlePostMoved,
     handlePostDeleted,
-    handleUserJoined,
-    handleUserLeft
+    () => {}, // Vazio para user joined
+    () => {}  // Vazio para user left
   );
 
   const handleCreatePost = useCallback(async (postData) => {
@@ -1531,27 +1538,27 @@ const PanelScreen = ({ panel, onBackToHome }) => {
   }, [panel.id]);
 
   const handleLeavePanel = useCallback(async () => {
-  try {
-    console.log('🚪 Saindo do painel:', panel.id);
-    
-    // Primeiro fechar o modal
-    setShowLeaveModal(false);
-    
-    await apiService.leavePanel(panel.id);
-    console.log('✅ Saída realizada com sucesso');
-    
-    // ✅ CORREÇÃO: Voltar para "meus murais"
-    if (onBackToHome) {
-      onBackToHome();
+    try {
+      console.log('🚪 Saindo do painel:', panel.id);
+      
+      // Primeiro fechar o modal
+      setShowLeaveModal(false);
+      
+      await apiService.leavePanel(panel.id);
+      console.log('✅ Saída realizada com sucesso');
+      
+      // ✅ CORREÇÃO: Voltar para "meus murais"
+      if (onBackToHome) {
+        onBackToHome();
+      }
+    } catch (err) {
+      console.error('❌ Erro ao sair do painel:', err);
+      setError(err.message || 'Erro ao sair do mural');
+      
+      // Reabrir modal em caso de erro
+      setShowLeaveModal(true);
     }
-  } catch (err) {
-    console.error('❌ Erro ao sair do painel:', err);
-    setError(err.message || 'Erro ao sair do mural');
-    
-    // Reabrir modal em caso de erro
-    setShowLeaveModal(true);
-  }
-}, [panel.id, onBackToHome]);
+  }, [panel.id, onBackToHome]);
 
   if (isLoading) {
     return <LoadingSpinner message="Carregando mural..." />;
@@ -1574,69 +1581,86 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         }}
       />
 
-      {/* Header Responsivo */}
-      <div className={`fixed top-0 left-0 right-0 z-50 ${isMobile ? 'p-2' : 'p-4'}`}>
+      {/* Header Responsivo - ATUALIZADO COM TAMANHO MAIOR NO MOBILE */}
+      <div className={`fixed top-0 left-0 right-0 z-50 ${isMobile ? 'p-3' : 'p-4'}`}>
         <div 
-          className={`rounded-xl shadow-lg border-2 ${isMobile ? 'p-2' : 'p-4'}`}
+          className={`rounded-xl shadow-lg border-2 ${isMobile ? 'p-4' : 'p-4'}`}
           style={{ 
             backgroundColor: panel.background_color,
             borderColor: colors.notes[0] || '#A8D8EA'
           }}
         >
           {isMobile ? (
-            // Layout mobile - com botão de sair
-            <div className="space-y-2">
+            // Layout mobile EXPANDIDO - SEM informações de usuários online
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h1 className="text-sm font-bold text-gray-800 truncate flex-1 mr-2">
+                <h1 className="text-base font-bold text-gray-800 truncate flex-1 mr-3">
                   {panel.name}
                 </h1>
-                <span className="px-1.5 py-0.5 bg-white bg-opacity-70 rounded text-xs text-gray-600 font-mono">
+                <span className="px-2 py-1 bg-white bg-opacity-70 rounded text-sm text-gray-600 font-mono">
                   {panel.id}
                 </span>
               </div>
               
+              {/* Controles principais em uma linha */}
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowNewPostForm(true)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black hover:bg-opacity-10 transition-colors text-xs"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-black hover:bg-opacity-10 transition-colors text-sm bg-white bg-opacity-20"
                   >
-                    <Plus className="w-3 h-3" />
-                    <span className="hidden xs:inline">Nota</span>
+                    <Plus className="w-4 h-4" />
+                    <span>Nova Nota</span>
                   </button>
                   
                   <button
                     onClick={() => setShowShareModal(true)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black hover:bg-opacity-10 transition-colors text-xs"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-black hover:bg-opacity-10 transition-colors text-sm bg-white bg-opacity-20"
                   >
-                    <Share2 className="w-3 h-3" />
+                    <Share2 className="w-4 h-4" />
+                    <span>Compartilhar</span>
                   </button>
                 </div>
                 
-                <div className="flex items-center gap-1">
-                  <div className="flex items-center text-xs text-gray-600">
-                    <Users className="w-3 h-3 mr-1" />
-                    {activeUsers.length}
-                  </div>
-                  
+                <div className="flex items-center gap-2">
                   <button
                     onClick={onBackToHome}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-blue-100 transition-colors text-xs text-blue-600"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-100 transition-colors text-sm text-blue-600 bg-blue-50"
                   >
-                    <Home className="w-3 h-3" />
+                    <Home className="w-4 h-4" />
+                    <span>Início</span>
                   </button>
                   
                   <button
                     onClick={() => setShowLeaveModal(true)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-100 transition-colors text-xs text-red-600"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-100 transition-colors text-sm text-red-600 bg-red-50"
                   >
-                    <ArrowLeft className="w-3 h-3" />
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Sair</span>
                   </button>
+                </div>
+              </div>
+              
+              {/* Informações do zoom */}
+              <div className="flex items-center justify-between text-xs text-gray-600">
+                <div className="flex items-center gap-2">
+                  <span className="bg-white bg-opacity-50 px-2 py-1 rounded">
+                    Zoom: {Math.round(zoom * 100)}%
+                  </span>
+                  <button
+                    onClick={handleResetView}
+                    className="bg-white bg-opacity-50 px-2 py-1 rounded hover:bg-opacity-70 transition-colors"
+                  >
+                    Resetar Vista
+                  </button>
+                </div>
+                <div className="text-gray-500">
+                  {posts.length} nota{posts.length !== 1 ? 's' : ''}
                 </div>
               </div>
             </div>
           ) : (
-            // Layout desktop - com botão de sair
+            // Layout desktop - SEM informações de usuários online
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <h1 className="text-xl font-bold text-gray-800">{panel.name}</h1>
@@ -1647,8 +1671,7 @@ const PanelScreen = ({ panel, onBackToHome }) => {
               
               <div className="flex items-center gap-3">
                 <div className="flex items-center text-sm text-gray-600">
-                  <Users className="w-4 h-4 mr-1" />
-                  {activeUsers.length}
+                  <span>{posts.length} nota{posts.length !== 1 ? 's' : ''}</span>
                 </div>
                 
                 <button
@@ -1688,45 +1711,12 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         </div>
       </div>
 
-      {/* Controles de Zoom para Mobile */}
-      {isMobile && (
-        <div className="fixed bottom-20 left-4 z-40 flex flex-col gap-2">
-          <button
-            onClick={handleZoomIn}
-            className="w-10 h-10 bg-gray-500 text-white rounded-lg shadow-md hover:bg-gray-600 transition-colors flex items-center justify-center border border-gray-600"
-            disabled={zoom >= 3}
-          >
-            <span className="text-lg font-bold leading-none">+</span>
-          </button>
-          
-          <button
-            onClick={handleZoomOut}
-            className="w-10 h-10 bg-gray-500 text-white rounded-lg shadow-md hover:bg-gray-600 transition-colors flex items-center justify-center border border-gray-600"
-            disabled={zoom <= 0.3}
-          >
-            <span className="text-lg font-bold leading-none">−</span>
-          </button>
-          
-          <button
-            onClick={handleResetView}
-            className="w-10 h-10 bg-gray-600 text-white rounded-lg shadow-md hover:bg-gray-700 transition-colors flex items-center justify-center text-xs font-bold border border-gray-700"
-            title="Resetar visualização"
-          >
-            ⌂
-          </button>
-          
-          <div className="bg-black bg-opacity-50 text-white px-2 py-1 rounded text-xs text-center mt-1">
-            {Math.round(zoom * 100)}%
-          </div>
-        </div>
-      )}
-
-      {/* Área do Mural com Zoom e Pan */}
+      {/* Área do Mural com Touch Responsivo */}
       <div 
         ref={panelRef}
-        className={`relative min-h-screen overflow-hidden ${isMobile ? 'pt-20 pb-4' : 'pt-24 pb-8'}`}
+        className={`relative min-h-screen overflow-hidden ${isMobile ? 'pt-32 pb-4' : 'pt-24 pb-8'}`}
         style={{
-          cursor: isPanning ? 'grabbing' : (isMobile ? 'grab' : 'default'),
+          cursor: isPanning ? 'grabbing' : isZooming ? 'grabbing' : (isMobile ? 'grab' : 'default'),
           touchAction: 'none'
         }}
       >
@@ -1807,35 +1797,36 @@ const PanelScreen = ({ panel, onBackToHome }) => {
         isMobile={isMobile}
       />
 
-{/* Modal de Confirmação de Saída */}
-{showLeaveModal && (
-  <Modal isOpen={showLeaveModal} onClose={() => setShowLeaveModal(false)} title="Sair do Mural">
-    <div className="space-y-4">
-      <div className="text-center">
-        <div className="text-6xl mb-4">🚪</div>
-        <p className="text-lg text-gray-800 mb-2">Tem certeza que deseja sair deste mural?</p>
-        <p className="text-sm text-gray-600">
-          Você precisará do código <strong>{panel.id}</strong> para entrar novamente.
-        </p>
-      </div>
-      
-      <div className="flex gap-3">
-        <button
-          onClick={() => setShowLeaveModal(false)}
-          className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-        >
-          Cancelar
-        </button>
-        <button
-          onClick={handleLeavePanel}
-          className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-        >
-          Confirmar Saída
-        </button>
-      </div>
-    </div>
-  </Modal>
-)}
+      {/* Modal de Confirmação de Saída */}
+      {showLeaveModal && (
+        <Modal isOpen={showLeaveModal} onClose={() => setShowLeaveModal(false)} title="Sair do Mural">
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-6xl mb-4">🚪</div>
+              <p className="text-lg text-gray-800 mb-2">Tem certeza que deseja sair deste mural?</p>
+              <p className="text-sm text-gray-600">
+                Você precisará do código <strong>{panel.id}</strong> para entrar novamente.
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLeaveModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleLeavePanel}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+              >
+                Confirmar Saída
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Toast de Erro */}
       {error && (
         <div className={`fixed ${isMobile ? 'bottom-32 left-4 right-4' : 'bottom-4 right-4'} bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50`}>
