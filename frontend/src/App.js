@@ -511,7 +511,6 @@ const PanelCard = ({ panel, onSelectPanel }) => {
         </div>
       )}
       
-// Estatísticas em grid responsivo
       <div className="grid grid-cols-1 gap-2 text-xs text-gray-600 mb-2">
         <div className="flex items-center">
           <span className="w-2 h-2 bg-blue-400 rounded-full mr-1"></span>
