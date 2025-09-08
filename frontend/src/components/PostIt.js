@@ -140,6 +140,7 @@ export function PostIt({ post, onDelete, onMove, canDelete, currentUserId, zoom 
   return (
     <div
       ref={noteRef}
+      data-postit="true"
       className={`absolute transition-all duration-200 ${
         isDragging ? 'cursor-grabbing scale-105 rotate-1 shadow-xl z-50' : 'cursor-grab hover:shadow-xl hover:-rotate-1'
       } ${
